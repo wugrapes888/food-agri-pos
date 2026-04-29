@@ -4,7 +4,7 @@ import OrdersPage from './pages/OrdersPage'
 import StockSetupPage from './pages/StockSetupPage'
 import ReportsPage from './pages/ReportsPage'
 import SettingsPage from './pages/SettingsPage'
-import { pingPOS } from './services/gasApi'
+import { pingPOS, getGasUrl } from './services/gasApi'
 
 const NAV = [
   { id: 'pos',      label: '🛒 收銀'    },
@@ -27,6 +27,14 @@ export default function App() {
   }
 
   useEffect(() => { checkConn() }, [])
+
+  // 每 4 分鐘靜默 ping，避免 GAS 冷啟動造成結帳延遲
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (getGasUrl()) pingPOS().catch(() => {})
+    }, 4 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   const statusDot = {
     ok:       { color: 'bg-green-400',  label: '已連線 GAS' },
