@@ -7,7 +7,7 @@ export default function LoginScreen({ onSuccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    const saved = localStorage.getItem('pos_password') ?? 'food2024'
+    const saved = localStorage.getItem('pos_password') ?? '0980558012'
     if (input === saved) {
       sessionStorage.setItem('pos_authed', '1')
       onSuccess()

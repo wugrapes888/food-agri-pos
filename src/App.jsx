@@ -16,7 +16,7 @@ const NAV = [
 ]
 
 export default function App() {
-  const hasPassword = () => (localStorage.getItem('pos_password') ?? 'food2024') !== ''
+  const hasPassword = () => (localStorage.getItem('pos_password') ?? '0980558012') !== ''
   const [authed, setAuthed] = useState(() => !hasPassword() || sessionStorage.getItem('pos_authed') === '1')
 
   const [page, setPage]                       = useState('pos')

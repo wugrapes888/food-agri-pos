@@ -176,7 +176,7 @@ export default function SettingsPage({ onSaved }) {
           <div>
             <h2 className="font-bold text-gray-700">🔒 登入密碼</h2>
             <p className="text-sm text-gray-500 mt-1">
-              預設密碼為 <code className="bg-gray-100 px-1 rounded">food2024</code>。
+              預設密碼為 <code className="bg-gray-100 px-1 rounded">0980558012</code>。
               輸入新密碼後儲存即生效；留白並儲存則取消密碼保護。
             </p>
           </div>
