@@ -4,6 +4,7 @@ import OrdersPage from './pages/OrdersPage'
 import StockSetupPage from './pages/StockSetupPage'
 import ReportsPage from './pages/ReportsPage'
 import SettingsPage from './pages/SettingsPage'
+import LoginScreen from './components/LoginScreen'
 import { pingPOS, getGasUrl } from './services/gasApi'
 
 const NAV = [
@@ -15,9 +16,14 @@ const NAV = [
 ]
 
 export default function App() {
+  const hasPassword = () => (localStorage.getItem('pos_password') ?? 'food2024') !== ''
+  const [authed, setAuthed] = useState(() => !hasPassword() || sessionStorage.getItem('pos_authed') === '1')
+
   const [page, setPage]                       = useState('pos')
   const [connStatus, setConnStatus]           = useState('checking')
   const [preselectedCustomer, setPreselectedCustomer] = useState(null)
+
+  if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />
 
   const checkConn = () => {
     setConnStatus('checking')

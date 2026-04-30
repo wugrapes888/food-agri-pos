@@ -14,6 +14,16 @@ export default function SettingsPage({ onSaved }) {
   const [importing, setImporting]   = useState(false)
   const [importResult, setImportResult] = useState(null) // { ok, msg }
 
+  const [pwdInput, setPwdInput]     = useState('')
+  const [pwdResult, setPwdResult]   = useState(null)
+
+  const handleSavePwd = () => {
+    localStorage.setItem('pos_password', pwdInput.trim())
+    sessionStorage.setItem('pos_authed', '1')
+    setPwdResult({ ok: true, msg: pwdInput.trim() ? '密碼已更新' : '已清除密碼（不需登入）' })
+    setPwdInput('')
+  }
+
   const handleTest = async () => {
     if (!url.trim()) { setResult({ ok: false, msg: '請先貼上 GAS Web App URL' }); return }
     setTesting(true)
@@ -157,6 +167,39 @@ export default function SettingsPage({ onSaved }) {
             <div className={`px-3 py-2 rounded-lg text-sm font-medium
               ${importResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {importResult.msg}
+            </div>
+          )}
+        </div>
+
+        {/* 密碼設定 */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div>
+            <h2 className="font-bold text-gray-700">🔒 登入密碼</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              預設密碼為 <code className="bg-gray-100 px-1 rounded">food2024</code>。
+              輸入新密碼後儲存即生效；留白並儲存則取消密碼保護。
+            </p>
+          </div>
+
+          <input
+            type="password"
+            value={pwdInput}
+            onChange={e => { setPwdInput(e.target.value); setPwdResult(null) }}
+            placeholder="輸入新密碼（留白 = 取消密碼保護）"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400"
+          />
+
+          <button
+            onClick={handleSavePwd}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700"
+          >
+            💾 儲存密碼
+          </button>
+
+          {pwdResult && (
+            <div className={`px-3 py-2 rounded-lg text-sm font-medium
+              ${pwdResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+              {pwdResult.msg}
             </div>
           )}
         </div>
