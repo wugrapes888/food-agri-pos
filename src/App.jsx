@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import POSPage from './pages/POSPage'
 import OrdersPage from './pages/OrdersPage'
 import StockSetupPage from './pages/StockSetupPage'
@@ -22,6 +22,13 @@ export default function App() {
   const [page, setPage]                       = useState('pos')
   const [connStatus, setConnStatus]           = useState('checking')
   const [preselectedCustomer, setPreselectedCustomer] = useState(null)
+
+  // 報表密碼門控（session 內有效，重整需重新輸入）
+  const [reportAuthed, setReportAuthed] = useState(() => sessionStorage.getItem('report_authed') === '1')
+  const [showReportGate, setShowReportGate] = useState(false)
+  const [reportPwd, setReportPwd] = useState('')
+  const [reportPwdErr, setReportPwdErr] = useState(false)
+  const reportPwdRef = useRef(null)
 
   const checkConn = () => {
     setConnStatus('checking')
@@ -52,6 +59,32 @@ export default function App() {
     checking: { color: 'bg-gray-400',   label: '連線中…'    },
   }[connStatus]
 
+  // 報表密碼驗證
+  const handleNavClick = (id) => {
+    if (id === 'reports' && !reportAuthed) {
+      setReportPwd('')
+      setReportPwdErr(false)
+      setShowReportGate(true)
+      setTimeout(() => reportPwdRef.current?.focus(), 80)
+      return
+    }
+    setPage(id)
+  }
+
+  const submitReportPwd = () => {
+    const stored = localStorage.getItem('report_password') || '316'
+    if (reportPwd === stored) {
+      sessionStorage.setItem('report_authed', '1')
+      setReportAuthed(true)
+      setShowReportGate(false)
+      setPage('reports')
+    } else {
+      setReportPwdErr(true)
+      setReportPwd('')
+      setTimeout(() => reportPwdRef.current?.focus(), 50)
+    }
+  }
+
   // 從取貨管理頁跳轉到收銀並帶入客人
   const handleGoToPOS = (customerName) => {
     setPreselectedCustomer(customerName)
@@ -73,7 +106,7 @@ export default function App() {
           {NAV.map(n => (
             <button
               key={n.id}
-              onClick={() => setPage(n.id)}
+              onClick={() => handleNavClick(n.id)}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
                 ${page === n.id
                   ? 'bg-white text-green-700'
@@ -112,6 +145,42 @@ export default function App() {
           <SettingsPage onSaved={checkConn} />
         )}
       </main>
+
+      {/* ── 報表密碼門控 Modal ─────────────────── */}
+      {showReportGate && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-xl w-80 overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <span className="font-bold text-gray-800">🔒 報表存取</span>
+              <button onClick={() => setShowReportGate(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+            </div>
+            <div className="px-5 py-5">
+              <p className="text-sm text-gray-500 mb-3">請輸入密碼以查看報表</p>
+              <input
+                ref={reportPwdRef}
+                type="password"
+                value={reportPwd}
+                onChange={e => { setReportPwd(e.target.value); setReportPwdErr(false) }}
+                onKeyDown={e => e.key === 'Enter' && submitReportPwd()}
+                placeholder="輸入密碼"
+                className={`w-full border rounded-lg px-3 py-2.5 text-base outline-none transition-colors
+                  ${reportPwdErr ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-green-500'}`}
+              />
+              {reportPwdErr && <p className="text-red-500 text-xs mt-1.5">密碼錯誤，請再試一次</p>}
+            </div>
+            <div className="px-5 pb-5 flex gap-2 justify-end">
+              <button onClick={() => setShowReportGate(false)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
+                取消
+              </button>
+              <button onClick={submitReportPwd}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700">
+                🔓 確認
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
