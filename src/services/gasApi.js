@@ -32,6 +32,7 @@ async function gasCall(action, data = {}) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
+  console.log('[GAS]', action, json);
   if (json && json.error) throw new Error(json.error);
   return json;
 }
@@ -316,6 +317,11 @@ export async function getProductProfit(startDate, endDate) {
     });
   }
   return gasCall('getProductProfit', { startDate, endDate });
+}
+
+export async function debugSales() {
+  if (isMock()) return { mock: true };
+  return gasCall('debugSales');
 }
 
 export async function renameProduct(oldName, newName) {

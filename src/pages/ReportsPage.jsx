@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   getTodayStats, getRevenueByDate, getProductSales,
   getCostRecords, saveCostRecord, deleteCostRecord, getProductProfit,
+  debugSales,
 } from '../services/gasApi'
 
 // ── 日期工具 ────────────────────────────────────────────────────
@@ -868,11 +869,40 @@ const TABS = [
 
 export default function ReportsPage() {
   const [tab, setTab] = useState('today')
+  const [debugInfo, setDebugInfo] = useState(null)
+  const [debugging, setDebugging] = useState(false)
+
+  const runDebug = async () => {
+    setDebugging(true)
+    try {
+      const r = await debugSales()
+      setDebugInfo(r)
+    } catch (e) {
+      setDebugInfo({ error: e.message })
+    } finally {
+      setDebugging(false)
+    }
+  }
 
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-black text-gray-800 mb-4">📊 報表中心</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-black text-gray-800">📊 報表中心</h1>
+          <button onClick={runDebug} disabled={debugging}
+            className="text-xs px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-40">
+            {debugging ? '診斷中…' : '🔍 診斷'}
+          </button>
+        </div>
+        {debugInfo && (
+          <div className="mb-4 p-4 bg-gray-900 text-green-300 rounded-xl text-xs font-mono overflow-auto max-h-60">
+            <div className="flex justify-between mb-2">
+              <span className="font-bold text-white">診斷資訊</span>
+              <button onClick={() => setDebugInfo(null)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+          </div>
+        )}
 
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 w-fit">
           {TABS.map(t => (
