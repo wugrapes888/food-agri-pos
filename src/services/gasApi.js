@@ -21,6 +21,28 @@ export function extractSheetId(urlOrId) {
   return m ? m[1] : urlOrId.trim();
 }
 
+// ── 快取工具（localStorage + TTL）────────────────────────────
+const CACHE_TTL = 5 * 60 * 1000 // 5 分鐘
+
+function getCached(key) {
+  try {
+    const item = localStorage.getItem(key)
+    if (!item) return null
+    const { data, time } = JSON.parse(item)
+    if (Date.now() - time > CACHE_TTL) { localStorage.removeItem(key); return null }
+    return data
+  } catch { return null }
+}
+
+function setCache(key, data) {
+  try { localStorage.setItem(key, JSON.stringify({ data, time: Date.now() })) } catch {}
+}
+
+export function clearPOSCache() {
+  localStorage.removeItem('cache_products')
+  localStorage.removeItem('cache_customers')
+}
+
 async function gasCall(action, data = {}) {
   const url = getGasUrl();
   if (!url) throw new Error('NO_GAS_URL');
@@ -50,18 +72,18 @@ let mockProducts = [
 ];
 
 const MOCK_CUSTOMERS = [
-  { name: '小明', orders: [
+  { name: '小明', phone: '0912345678', orders: [
     { name: '草莓', qty: 2, price: 150, isPreorder: true, arrived: true },
     { name: '溫家韭菜水餃', qty: 1, price: 100, isPreorder: true, arrived: true },
   ]},
-  { name: '小美', orders: [
+  { name: '小美', phone: '0923456789', orders: [
     { name: '巨峰葡萄', qty: 1, price: 200, isPreorder: true, arrived: true },
     { name: '有機蔬菜箱', qty: 1, price: 500, isPreorder: true, arrived: false },
   ]},
-  { name: '王大明', orders: [
+  { name: '王大明', phone: '0934567890', orders: [
     { name: '土雞蛋(10入)', qty: 3, price: 80, isPreorder: true, arrived: true },
   ]},
-  { name: '陳小花', orders: [
+  { name: '陳小花', phone: '0945678901', orders: [
     { name: '蜂蜜(500g)', qty: 2, price: 350, isPreorder: true, arrived: true },
     { name: '玉米', qty: 5, price: 60, isPreorder: true, arrived: true },
   ]},
@@ -142,16 +164,25 @@ export async function pingPOS() {
 
 export async function getProductsForPOS() {
   if (isMock()) return [...mockProducts];
-  return gasCall('getProductsForPOS');
+  const cached = getCached('cache_products')
+  if (cached) return cached
+  const data = await gasCall('getProductsForPOS')
+  setCache('cache_products', data)
+  return data
 }
 
 export async function getAllCustomersForPOS() {
   if (isMock()) return MOCK_CUSTOMERS.map(c => ({
     name: c.name,
+    phone: c.phone || '',
     qty: c.orders.reduce((s, o) => s + o.qty, 0),
     status: '未取貨',
   }));
-  return gasCall('getAllCustomers');
+  const cached = getCached('cache_customers')
+  if (cached) return cached
+  const data = await gasCall('getAllCustomers')
+  setCache('cache_customers', data)
+  return data
 }
 
 export async function getCustomerCartForPOS(name) {
@@ -170,7 +201,7 @@ export async function submitCheckout(payload) {
   return gasCall('submitCheckout', { payload });
 }
 
-export async function setDailyStock(items) {
+export async function setDailyStock(items, costItems) {
   if (isMock()) {
     items.forEach(item => {
       const idx = mockProducts.findIndex(p => p.name === item.name);
@@ -187,9 +218,15 @@ export async function setDailyStock(items) {
     mockProducts = mockProducts.map(p =>
       names.has(p.name) ? p : { ...p, stock: 0 }
     );
+    if (costItems && costItems.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      costItems.forEach(c => {
+        MOCK_COST_RECORDS.push({ product: c.name, date: today, cost: Number(c.cost), note: '開攤設定' });
+      });
+    }
     return { success: true, mock: true };
   }
-  return gasCall('setDailyStock', { items });
+  return gasCall('setDailyStock', { items, costs: costItems || [] });
 }
 
 export async function getTodayStats() {

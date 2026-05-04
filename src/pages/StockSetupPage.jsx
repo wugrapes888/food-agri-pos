@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getProductsForPOS, setDailyStock, saveProduct, deleteProduct, renameProduct } from '../services/gasApi'
+import { getProductsForPOS, setDailyStock, saveProduct, deleteProduct, renameProduct, getCostRecords } from '../services/gasApi'
 
 const CATEGORIES = ['水果', '蔬菜', '蛋類', '冷凍食品', '加工品', '其他']
 
@@ -10,6 +10,8 @@ export default function StockSetupPage({ onOpenPOS }) {
   const [stocks,     setStocks]     = useState({})
   const [prices,     setPrices]     = useState({})
   const [origPrices, setOrigPrices] = useState({})
+  const [costs,      setCosts]      = useState({})
+  const [origCosts,  setOrigCosts]  = useState({})
   const [included,   setIncluded]   = useState({})
 
   const [loading, setLoading] = useState(true)
@@ -31,10 +33,17 @@ export default function StockSetupPage({ onOpenPOS }) {
   const nameInputRef = useRef(null)
 
   useEffect(() => {
-    getProductsForPOS()
-      .then(prods => {
+    Promise.all([getProductsForPOS(), getCostRecords()])
+      .then(([prods, costRecords]) => {
         setProducts(prods)
-        const initStocks = {}, initPrices = {}, initIncluded = {}
+
+        // 最新成本查找表（已排序最新在前）
+        const latestCostMap = {}
+        costRecords.forEach(r => {
+          if (!(r.product in latestCostMap)) latestCostMap[r.product] = r.cost
+        })
+
+        const initStocks = {}, initPrices = {}, initIncluded = {}, initCosts = {}
         prods.forEach(p => {
           const suggestedQty =
             p.stockMode === 'carry' && p.prevStock !== null ? p.prevStock :
@@ -42,10 +51,13 @@ export default function StockSetupPage({ onOpenPOS }) {
           initStocks[p.name]   = suggestedQty
           initPrices[p.name]   = p.price
           initIncluded[p.name] = p.arrived !== false
+          initCosts[p.name]    = latestCostMap[p.name] ?? 0
         })
         setStocks(initStocks)
         setPrices(initPrices)
         setOrigPrices(initPrices)
+        setCosts(initCosts)
+        setOrigCosts({ ...initCosts })
         setIncluded(initIncluded)
       })
       .catch(e => setError(e.message))
@@ -54,6 +66,7 @@ export default function StockSetupPage({ onOpenPOS }) {
 
   const handleQty   = (name, val) => setStocks(prev => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
   const handlePrice = (name, val) => setPrices(prev => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
+  const handleCost  = (name, val) => setCosts(prev  => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
   const toggleIncluded = (name) => setIncluded(prev => ({ ...prev, [name]: !prev[name] }))
 
   // ── 儲存開攤 ──────────────────────────────────────────────
@@ -64,8 +77,15 @@ export default function StockSetupPage({ onOpenPOS }) {
       const items = products
         .filter(p => included[p.name])
         .map(p => ({ name: p.name, openStock: stocks[p.name] || 0, price: prices[p.name] }))
-      await setDailyStock(items)
+
+      // 只傳送有變動且大於 0 的成本
+      const costItems = products
+        .filter(p => included[p.name] && costs[p.name] > 0 && costs[p.name] !== origCosts[p.name])
+        .map(p => ({ name: p.name, cost: costs[p.name] }))
+
+      await setDailyStock(items, costItems)
       setOrigPrices({ ...prices })
+      setOrigCosts({ ...costs })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (e) {
@@ -289,6 +309,15 @@ export default function StockSetupPage({ onOpenPOS }) {
               const priceChanged = prices[p.name] !== origPrices[p.name]
               const isDeleting   = confirmDelete === p.name
 
+              const price  = Number(prices[p.name]) || 0
+              const cost   = Number(costs[p.name])  || 0
+              const profit = price > 0 && cost > 0 ? price - cost : null
+              const margin = profit !== null ? Math.round(profit / price * 100) : null
+              const marginColor = margin === null ? '' :
+                margin >= 30 ? 'text-green-600 bg-green-50 border-green-200' :
+                margin >= 15 ? 'text-amber-600 bg-amber-50 border-amber-200' :
+                               'text-red-500 bg-red-50 border-red-200'
+
               return (
                 <div
                   key={p.name}
@@ -367,22 +396,44 @@ export default function StockSetupPage({ onOpenPOS }) {
                     )}
                   </div>
 
-                  {/* 下排：今日單價 + 今日帶貨量 */}
+                  {/* 下排：成本 → 售價 → 毛利 + 帶貨量 */}
                   {isOn && (
-                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-                      <div className="flex items-center gap-1 flex-1">
-                        <span className="text-xs text-gray-400 whitespace-nowrap">單價 $</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={prices[p.name] ?? ''}
-                          onChange={e => handlePrice(p.name, e.target.value)}
-                          className="w-20 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:outline-none focus:border-green-400"
-                        />
-                        {priceChanged && (
-                          <span className="text-[10px] text-amber-500 font-semibold">已改</span>
+                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
+
+                      {/* 成本 → 售價 → 毛利試算 */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-400 whitespace-nowrap">成本 $</span>
+                          <input
+                            type="number" min="0"
+                            value={costs[p.name] || ''}
+                            onChange={e => handleCost(p.name, e.target.value)}
+                            placeholder="0"
+                            className="w-16 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:outline-none focus:border-amber-400"
+                          />
+                        </div>
+                        <span className="text-gray-300 text-xs">→</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-400 whitespace-nowrap">售價 $</span>
+                          <input
+                            type="number" min="0"
+                            value={prices[p.name] ?? ''}
+                            onChange={e => handlePrice(p.name, e.target.value)}
+                            className="w-16 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:outline-none focus:border-green-400"
+                          />
+                          {priceChanged && (
+                            <span className="text-[10px] text-amber-500 font-semibold">已改</span>
+                          )}
+                        </div>
+                        {margin !== null && (
+                          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-bold ${marginColor}`}>
+                            <span>毛利 ${profit}</span>
+                            <span className="font-normal opacity-80">({margin}%)</span>
+                          </div>
                         )}
                       </div>
+
+                      {/* 帶貨量 */}
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-gray-400">帶貨</span>
                         <button
@@ -390,8 +441,7 @@ export default function StockSetupPage({ onOpenPOS }) {
                           className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 font-bold flex items-center justify-center text-base"
                         >−</button>
                         <input
-                          type="number"
-                          min="0"
+                          type="number" min="0"
                           value={stocks[p.name] ?? ''}
                           onChange={e => handleQty(p.name, e.target.value)}
                           className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:outline-none focus:border-green-400"
@@ -401,6 +451,7 @@ export default function StockSetupPage({ onOpenPOS }) {
                           className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600 font-bold flex items-center justify-center text-base"
                         >＋</button>
                       </div>
+
                     </div>
                   )}
                 </div>

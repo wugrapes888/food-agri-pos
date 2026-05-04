@@ -16,6 +16,7 @@ const SH = {
   ORDERS:       '訂單明細',   // 預購訂單（與群購系統共用）
   GRP_PRODUCTS: '商品清單',   // 群購商品清單（與群購系統共用）
   COSTS:        '成本設定',   // 進貨成本記錄（商品名稱、進貨日期、每單位成本）
+  CUSTOMERS:    '客人資料',   // 客人基本資料（姓名、手機）
 };
 
 // ── 工具函式 ─────────────────────────────────────────────────
@@ -42,6 +43,7 @@ function _initHeaders(sheet, name) {
     [SH.ORDERS]:       ['客人姓名', '商品名稱', '數量', '單價', '小計', '取貨狀態', '建立時間'],
     [SH.GRP_PRODUCTS]: ['商品名稱', '單價', '總訂購量', '剩餘待取量', '類型', '備註', '到貨狀態'],
     [SH.COSTS]:        ['商品名稱', '進貨日期', '每單位成本', '備註'],
+    [SH.CUSTOMERS]:    ['客人姓名', '手機'],
   };
   if (h[name]) {
     sheet.appendRow(h[name]);
@@ -94,7 +96,7 @@ function doPost(e) {
         result = submitCheckout(body.payload);
         break;
       case 'setDailyStock':
-        result = setDailyStock(body.items);
+        result = setDailyStock(body.items, body.costs);
         break;
       case 'getTodayStats':
         result = getTodayStats();
@@ -137,6 +139,9 @@ function doPost(e) {
         break;
       case 'getProductProfit':
         result = getProductProfit(body.startDate, body.endDate);
+        break;
+      case 'debugSales':
+        result = debugSales();
         break;
       default:
         result = { error: 'Unknown action: ' + action };
@@ -204,7 +209,7 @@ function getProductsForPOS() {
 // ── setDailyStock ─────────────────────────────────────────────
 // items: [{name, openStock, price}]
 
-function setDailyStock(items) {
+function setDailyStock(items, costItems) {
   const dailySheet = getSheet(SH.DAILY);
   const prodSheet  = getSheet(SH.PRODUCTS);
   const today = todayStr();
@@ -230,6 +235,16 @@ function setDailyStock(items) {
       }
     }
   });
+
+  // 儲存變動的成本記錄
+  if (costItems && costItems.length > 0) {
+    const costSheet = getSheet(SH.COSTS);
+    costItems.forEach(c => {
+      if (c.name && Number(c.cost) > 0) {
+        costSheet.appendRow([c.name, today, Number(c.cost), '開攤設定']);
+      }
+    });
+  }
 
   SpreadsheetApp.flush();
   return { success: true };
@@ -300,15 +315,25 @@ function _markPickedUp(customerName, itemNames) {
 // ── getAllCustomers ────────────────────────────────────────────
 
 function getAllCustomers() {
-  const sheet = getSheet(SH.ORDERS);
-  const data  = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
+  const orderSheet = getSheet(SH.ORDERS);
+  const custSheet  = getSheet(SH.CUSTOMERS);
+
+  const orderData = orderSheet.getDataRange().getValues();
+  const custData  = custSheet.getDataRange().getValues();
+
+  // 建立手機查找表：姓名 → 手機
+  const phoneMap = {};
+  custData.slice(1).forEach(r => {
+    if (r[0]) phoneMap[String(r[0])] = String(r[1] || '');
+  });
+
+  if (orderData.length <= 1) return [];
 
   const map = {}, order = [];
-  data.slice(1).forEach(r => {
+  orderData.slice(1).forEach(r => {
     if (!r[0]) return;
     const name = r[0];
-    if (!map[name]) { map[name] = { name, qty: 0, status: '已取貨' }; order.push(name); }
+    if (!map[name]) { map[name] = { name, qty: 0, status: '已取貨', phone: phoneMap[name] || '' }; order.push(name); }
     map[name].qty += Number(r[2]);
     if (r[5] !== '已取貨') map[name].status = '未取貨';
   });
@@ -744,4 +769,17 @@ function syncFromExternalOrders(spreadsheetId) {
   } catch (err) {
     return { success: false, error: err.toString() };
   }
+}
+
+// ── debugSales ────────────────────────────────────────────────
+// 診斷用：回傳銷售記錄的基本統計，協助排查報表空資料問題
+
+function debugSales() {
+  const sheet = getSheet(SH.SALES);
+  const data  = sheet.getDataRange().getValues();
+  const total = data.length - 1;
+  const sample = data.slice(1, 4).map(r => ({
+    date: toDateStr(r[0]), time: r[1], customer: r[2], product: r[4], amount: r[7]
+  }));
+  return { totalRows: total, sample };
 }
