@@ -14,7 +14,7 @@ const NAV_ALL = [
   { id: 'reports',  label: '📊 報表'  },
   { id: 'settings', label: '⚙️ 設定' },
 ]
-const NAV_STAFF = NAV_ALL.filter(n => n.id === 'pos')
+const NAV_STAFF = NAV_ALL.filter(n => ['pos', 'orders'].includes(n.id))
 
 export default function App() {
   const [role, setRole] = useState(() => sessionStorage.getItem('pos_role') || null)
@@ -45,9 +45,9 @@ export default function App() {
     return () => clearInterval(id)
   }, [authed])
 
-  // 員工只能停在收銀頁
+  // 員工只能停在允許的頁面
   useEffect(() => {
-    if (role === 'staff' && page !== 'pos') setPage('pos')
+    if (role === 'staff' && !['pos', 'orders'].includes(page)) setPage('pos')
   }, [role, page])
 
   if (!authed) {
@@ -67,7 +67,7 @@ export default function App() {
   }
 
   const handleNavClick = (id) => {
-    if (role === 'staff' && id !== 'pos') return
+    if (role === 'staff' && !['pos', 'orders'].includes(id)) return
     setPage(id)
   }
 
@@ -119,7 +119,7 @@ export default function App() {
             onClearPreselect={() => setPreselectedCustomer(null)}
           />
         )}
-        {page === 'orders'   && role === 'boss' && <OrdersPage onGoToPOS={handleGoToPOS} />}
+        {page === 'orders'   && ['boss','staff'].includes(role) && <OrdersPage onGoToPOS={handleGoToPOS} />}
         {page === 'stock'    && role === 'boss' && <StockSetupPage onOpenPOS={() => setPage('pos')} />}
         {page === 'reports'  && role === 'boss' && <ReportsPage />}
         {page === 'settings' && role === 'boss' && <SettingsPage onSaved={checkConn} role={role} />}
