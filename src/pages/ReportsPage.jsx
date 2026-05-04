@@ -331,7 +331,9 @@ function RevenueTab() {
       getRevenueByDate(range.start, range.end),
       getRevenueByDate(prev.start,  prev.end),
     ]).then(([c, p]) => {
-      if (!cancelled) { setCurrRows(c); setPrevRows(p) }
+      if (!cancelled) { setCurrRows(Array.isArray(c) ? c : []); setPrevRows(Array.isArray(p) ? p : []) }
+    }).catch(() => {
+      if (!cancelled) { setCurrRows([]); setPrevRows([]) }
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])
@@ -409,7 +411,8 @@ function ProductTab() {
     setLoading(true)
     const range = getDimRange(dim, customStart, customEnd)
     getProductSales(range.start, range.end)
-      .then(data => { if (!cancelled) setProducts(data) })
+      .then(data => { if (!cancelled) setProducts(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setProducts([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])
@@ -527,7 +530,8 @@ function ProfitTab() {
     setLoading(true)
     const range = getDimRange(dim, customStart, customEnd)
     getProductProfit(range.start, range.end)
-      .then(data => { if (!cancelled) setProfitData(data) })
+      .then(data => { if (!cancelled) setProfitData(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setProfitData([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])

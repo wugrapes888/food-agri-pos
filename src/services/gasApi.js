@@ -31,7 +31,9 @@ async function gasCall(action, data = {}) {
     body: JSON.stringify({ action, ...data }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const json = await res.json();
+  if (json && json.error) throw new Error(json.error);
+  return json;
 }
 
 // ── Mock 示範資料 ──────────────────────────────────────
