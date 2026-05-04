@@ -15,6 +15,7 @@ const SH = {
   SALES:        '銷售記錄',   // 每筆結帳明細
   ORDERS:       '訂單明細',   // 預購訂單（與群購系統共用）
   GRP_PRODUCTS: '商品清單',   // 群購商品清單（與群購系統共用）
+  COSTS:        '成本設定',   // 進貨成本記錄（商品名稱、進貨日期、每單位成本）
 };
 
 // ── 工具函式 ─────────────────────────────────────────────────
@@ -40,6 +41,7 @@ function _initHeaders(sheet, name) {
     [SH.SALES]:        ['日期', '時間', '客人姓名', '客人類型', '商品名稱', '數量', '單價', '小計', '付款方式', '員工編號', '員工姓名'],
     [SH.ORDERS]:       ['客人姓名', '商品名稱', '數量', '單價', '小計', '取貨狀態', '建立時間'],
     [SH.GRP_PRODUCTS]: ['商品名稱', '單價', '總訂購量', '剩餘待取量', '類型', '備註', '到貨狀態'],
+    [SH.COSTS]:        ['商品名稱', '進貨日期', '每單位成本', '備註'],
   };
   if (h[name]) {
     sheet.appendRow(h[name]);
@@ -117,6 +119,24 @@ function doPost(e) {
         break;
       case 'renameProduct':
         result = renameProduct(body.oldName, body.newName);
+        break;
+      case 'getRevenueByDate':
+        result = getRevenueByDate(body.startDate, body.endDate);
+        break;
+      case 'getProductSales':
+        result = getProductSales(body.startDate, body.endDate);
+        break;
+      case 'getCostRecords':
+        result = getCostRecords();
+        break;
+      case 'saveCostRecord':
+        result = saveCostRecord(body.product, body.date, body.cost, body.note);
+        break;
+      case 'deleteCostRecord':
+        result = deleteCostRecord(body.product, body.date);
+        break;
+      case 'getProductProfit':
+        result = getProductProfit(body.startDate, body.endDate);
         break;
       default:
         result = { error: 'Unknown action: ' + action };
@@ -522,6 +542,157 @@ function renameProduct(oldName, newName) {
   }
   SpreadsheetApp.flush();
   return { success: true };
+}
+
+// ── getCostRecords ────────────────────────────────────────────
+// 回傳所有進貨成本記錄，依進貨日期新→舊排序
+
+function getCostRecords() {
+  const sheet = getSheet(SH.COSTS);
+  const data  = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  return data.slice(1)
+    .filter(r => r[0])
+    .map(r => ({
+      product: String(r[0]),
+      date:    toDateStr(r[1]),
+      cost:    Number(r[2]),
+      note:    String(r[3] || ''),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// ── saveCostRecord ────────────────────────────────────────────
+
+function saveCostRecord(product, date, cost, note) {
+  const sheet = getSheet(SH.COSTS);
+  sheet.appendRow([product, date, Number(cost), note || '']);
+  SpreadsheetApp.flush();
+  return { success: true };
+}
+
+// ── deleteCostRecord ──────────────────────────────────────────
+// 刪除指定商品＋日期的成本記錄（可能有多筆，全部刪除）
+
+function deleteCostRecord(product, date) {
+  const sheet = getSheet(SH.COSTS);
+  const data  = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === product && toDateStr(data[i][1]) === date) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+  SpreadsheetApp.flush();
+  return { success: true };
+}
+
+// ── getProductProfit ──────────────────────────────────────────
+// 依日期範圍計算各商品毛利，使用銷售當日最近一筆進貨成本
+
+function getProductProfit(startDate, endDate) {
+  const salesSheet = getSheet(SH.SALES);
+  const costSheet  = getSheet(SH.COSTS);
+
+  const salesData = salesSheet.getDataRange().getValues();
+  const costData  = costSheet.getDataRange().getValues();
+
+  // 建立成本查找表：product → [{date, cost}] 按日期升序
+  const costMap = {};
+  costData.slice(1).forEach(r => {
+    if (!r[0]) return;
+    const p = String(r[0]);
+    if (!costMap[p]) costMap[p] = [];
+    costMap[p].push({ date: toDateStr(r[1]), cost: Number(r[2]) });
+  });
+  Object.values(costMap).forEach(arr => arr.sort((a, b) => a.date.localeCompare(b.date)));
+
+  function lookupCost(product, saleDate) {
+    const records = costMap[product];
+    if (!records) return null;
+    let found = null;
+    for (const r of records) {
+      if (r.date <= saleDate) found = r.cost;
+      else break;
+    }
+    return found;
+  }
+
+  // 彙總銷售並對應成本
+  const prodMap = {};
+  salesData.slice(1).forEach(r => {
+    const d = toDateStr(r[0]);
+    if (!d || d < startDate || d > endDate) return;
+    const name      = String(r[4]);
+    const qty       = Number(r[5]);
+    const amount    = Number(r[7]);
+    const unitCost  = lookupCost(name, d);
+
+    if (!prodMap[name]) prodMap[name] = { name, qty: 0, amount: 0, totalCost: 0, hasCost: false };
+    prodMap[name].qty    += qty;
+    prodMap[name].amount += amount;
+    if (unitCost !== null) {
+      prodMap[name].totalCost += qty * unitCost;
+      prodMap[name].hasCost    = true;
+    }
+  });
+
+  return Object.values(prodMap).map(p => {
+    const totalCost   = p.hasCost ? p.totalCost   : null;
+    const grossProfit = p.hasCost ? p.amount - p.totalCost : null;
+    const grossMargin = (p.hasCost && p.amount > 0)
+      ? Math.round((p.amount - p.totalCost) / p.amount * 100)
+      : null;
+    return { name: p.name, qty: p.qty, amount: p.amount, totalCost, grossProfit, grossMargin };
+  }).sort((a, b) => b.amount - a.amount);
+}
+
+// ── getRevenueByDate ──────────────────────────────────────────
+// 回傳指定日期範圍的每日收款彙總（供報表用）
+// startDate / endDate：YYYY-MM-DD
+
+function getRevenueByDate(startDate, endDate) {
+  const sheet = getSheet(SH.SALES);
+  const data  = sheet.getDataRange().getValues();
+
+  const dayMap = {};
+  data.slice(1).forEach(r => {
+    const d = toDateStr(r[0]);
+    if (!d || d < startDate || d > endDate) return;
+    if (!dayMap[d]) dayMap[d] = { date: d, revenue: 0, orders: new Set(), cash: 0, transfer: 0, linepay: 0 };
+    const amt = Number(r[7]);
+    const pay = String(r[8]);
+    const txKey = String(r[1]) + '|' + String(r[2]);
+    dayMap[d].revenue += amt;
+    dayMap[d].orders.add(txKey);
+    if (pay === 'cash')          dayMap[d].cash     += amt;
+    else if (pay === 'transfer') dayMap[d].transfer += amt;
+    else                         dayMap[d].linepay  += amt;
+  });
+
+  return Object.values(dayMap)
+    .map(d => ({ date: d.date, revenue: d.revenue, orders: d.orders.size,
+                 cash: d.cash, transfer: d.transfer, linepay: d.linepay }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── getProductSales ───────────────────────────────────────────
+// 回傳指定日期範圍的商品銷售彙總
+
+function getProductSales(startDate, endDate) {
+  const sheet = getSheet(SH.SALES);
+  const data  = sheet.getDataRange().getValues();
+
+  const prodMap = {};
+  data.slice(1).forEach(r => {
+    const d = toDateStr(r[0]);
+    if (!d || d < startDate || d > endDate) return;
+    const name = String(r[4]);
+    if (!prodMap[name]) prodMap[name] = { name, qty: 0, amount: 0 };
+    prodMap[name].qty    += Number(r[5]);
+    prodMap[name].amount += Number(r[7]);
+  });
+
+  return Object.values(prodMap).sort((a, b) => b.amount - a.amount);
 }
 
 // ── syncFromExternalOrders ────────────────────────────────────

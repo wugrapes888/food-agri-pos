@@ -86,6 +86,50 @@ function isMock() {
   return !getGasUrl();
 }
 
+// ── Mock 報表資料 ───────────────────────────────────────────────
+
+function _buildMockDailyRevenue() {
+  const today = new Date();
+  const rows = [];
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 1) continue; // 週日/一休市
+    const base    = 3500 + Math.sin(i * 0.4) * 1200;
+    const revenue = Math.round(base + (Math.random() * 2000 - 400));
+    const orders  = Math.round(6 + Math.random() * 8);
+    const cash     = Math.round(revenue * (0.40 + Math.random() * 0.15));
+    const transfer = Math.round(revenue * (0.25 + Math.random() * 0.10));
+    const linepay  = Math.max(0, revenue - cash - transfer);
+    rows.push({ date: d.toISOString().slice(0, 10), revenue, orders, cash, transfer, linepay });
+  }
+  return rows;
+}
+const MOCK_DAILY_REVENUE = _buildMockDailyRevenue();
+
+const MOCK_COST_RECORDS = [
+  { product: '草莓',              date: '2026-04-01', cost:  80, note: '' },
+  { product: '草莓',              date: '2026-05-01', cost:  95, note: '季末漲價' },
+  { product: '巨峰葡萄',          date: '2026-04-01', cost: 120, note: '' },
+  { product: '土雞蛋(10入)',      date: '2026-04-01', cost:  50, note: '' },
+  { product: '蜂蜜(500g)',        date: '2026-04-01', cost: 200, note: '' },
+  { product: '溫家韭菜水餃',      date: '2026-04-01', cost:  65, note: '' },
+  { product: '溫家高麗菜水餃',    date: '2026-04-01', cost:  65, note: '' },
+  { product: '玉米',              date: '2026-04-01', cost:  28, note: '' },
+];
+
+const MOCK_PRODUCT_SALES_DATA = [
+  { name: '草莓',              qty: 45, amount: 6750 },
+  { name: '巨峰葡萄',          qty: 30, amount: 6000 },
+  { name: '土雞蛋(10入)',      qty: 60, amount: 4800 },
+  { name: '蜂蜜(500g)',        qty: 12, amount: 4200 },
+  { name: '溫家韭菜水餃',      qty: 35, amount: 3500 },
+  { name: '溫家高麗菜水餃',    qty: 30, amount: 3000 },
+  { name: '有機蔬菜箱',        qty:  5, amount: 2500 },
+  { name: '玉米',              qty: 40, amount: 2400 },
+];
+
 // ── Public API ─────────────────────────────────────────
 
 export async function pingPOS() {
@@ -212,6 +256,64 @@ export async function deleteProduct(name) {
     return { success: true, mock: true };
   }
   return gasCall('deleteProduct', { name });
+}
+
+export async function getRevenueByDate(startDate, endDate) {
+  if (isMock()) return MOCK_DAILY_REVENUE.filter(r => r.date >= startDate && r.date <= endDate);
+  return gasCall('getRevenueByDate', { startDate, endDate });
+}
+
+export async function getProductSales(startDate, endDate) {
+  if (isMock()) return MOCK_PRODUCT_SALES_DATA;
+  return gasCall('getProductSales', { startDate, endDate });
+}
+
+export async function getCostRecords() {
+  if (isMock()) return [...MOCK_COST_RECORDS].sort((a, b) => b.date.localeCompare(a.date));
+  return gasCall('getCostRecords');
+}
+
+export async function saveCostRecord(product, date, cost, note) {
+  if (isMock()) {
+    MOCK_COST_RECORDS.push({ product, date, cost: Number(cost), note: note || '' });
+    return { success: true, mock: true };
+  }
+  return gasCall('saveCostRecord', { product, date, cost, note });
+}
+
+export async function deleteCostRecord(product, date) {
+  if (isMock()) {
+    const idx = MOCK_COST_RECORDS.findIndex(r => r.product === product && r.date === date);
+    if (idx >= 0) MOCK_COST_RECORDS.splice(idx, 1);
+    return { success: true, mock: true };
+  }
+  return gasCall('deleteCostRecord', { product, date });
+}
+
+export async function getProductProfit(startDate, endDate) {
+  if (isMock()) {
+    const costMap = {};
+    MOCK_COST_RECORDS.forEach(r => {
+      if (!costMap[r.product]) costMap[r.product] = [];
+      costMap[r.product].push({ date: r.date, cost: r.cost });
+    });
+    Object.values(costMap).forEach(arr => arr.sort((a, b) => a.date.localeCompare(b.date)));
+
+    return MOCK_PRODUCT_SALES_DATA.map(p => {
+      const records = costMap[p.name];
+      let unitCost = null;
+      if (records) {
+        const valid = records.filter(r => r.date <= endDate);
+        if (valid.length > 0) unitCost = valid[valid.length - 1].cost;
+      }
+      const totalCost   = unitCost !== null ? p.qty * unitCost : null;
+      const grossProfit = totalCost !== null ? p.amount - totalCost : null;
+      const grossMargin = (grossProfit !== null && p.amount > 0)
+        ? Math.round(grossProfit / p.amount * 100) : null;
+      return { name: p.name, qty: p.qty, amount: p.amount, totalCost, grossProfit, grossMargin };
+    });
+  }
+  return gasCall('getProductProfit', { startDate, endDate });
 }
 
 export async function renameProduct(oldName, newName) {
