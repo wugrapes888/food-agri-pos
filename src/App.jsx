@@ -7,7 +7,7 @@ import SettingsPage from './pages/SettingsPage'
 import LoginScreen from './components/LoginScreen'
 import { pingPOS, getGasUrl } from './services/gasApi'
 
-const NAV_ALL = [
+const NAV_ALL   = [
   { id: 'pos',      label: '🛒 收銀'  },
   { id: 'orders',   label: '📋 取貨'  },
   { id: 'stock',    label: '📦 開攤'  },
@@ -15,16 +15,20 @@ const NAV_ALL = [
   { id: 'settings', label: '⚙️ 設定' },
 ]
 const NAV_STAFF = NAV_ALL.filter(n => ['pos', 'orders'].includes(n.id))
+const STAFF_PAGES = new Set(['pos', 'orders'])
 
 export default function App() {
-  const [role, setRole] = useState(() => sessionStorage.getItem('pos_role') || null)
-  const authed = role !== null && sessionStorage.getItem('pos_authed') === '1'
+  const [currentUser, setCurrentUser] = useState(() => {
+    if (sessionStorage.getItem('pos_authed') !== '1') return null
+    try { return JSON.parse(sessionStorage.getItem('pos_user')) } catch { return null }
+  })
 
   const [page, setPage]         = useState('pos')
   const [connStatus, setConnStatus] = useState('checking')
   const [preselectedCustomer, setPreselectedCustomer] = useState(null)
 
-  const nav = role === 'boss' ? NAV_ALL : NAV_STAFF
+  const role = currentUser?.role || null
+  const nav  = role === 'boss' ? NAV_ALL : NAV_STAFF
 
   const checkConn = () => {
     setConnStatus('checking')
@@ -33,42 +37,40 @@ export default function App() {
       .catch(() => setConnStatus('error'))
   }
 
-  useEffect(() => {
-    if (authed) checkConn()
-  }, [authed])
+  useEffect(() => { if (currentUser) checkConn() }, [currentUser])
 
   useEffect(() => {
-    if (!authed) return
+    if (!currentUser) return
     const id = setInterval(() => {
       if (getGasUrl()) pingPOS().catch(() => {})
     }, 4 * 60 * 1000)
     return () => clearInterval(id)
-  }, [authed])
+  }, [currentUser])
 
   // 員工只能停在允許的頁面
   useEffect(() => {
-    if (role === 'staff' && !['pos', 'orders'].includes(page)) setPage('pos')
+    if (role === 'staff' && !STAFF_PAGES.has(page)) setPage('pos')
   }, [role, page])
 
-  if (!authed) {
-    return <LoginScreen onSuccess={(r) => setRole(r)} />
+  if (!currentUser) {
+    return <LoginScreen onSuccess={(user) => setCurrentUser(user)} />
   }
 
   const statusDot = {
-    ok:       { color: 'bg-green-400',  label: '已連線 GAS' },
-    mock:     { color: 'bg-amber-400',  label: '示範模式'   },
-    error:    { color: 'bg-red-400',    label: '連線失敗'   },
-    checking: { color: 'bg-gray-400',   label: '連線中…'    },
+    ok:       { color: 'bg-green-400', label: '已連線 GAS' },
+    mock:     { color: 'bg-amber-400', label: '示範模式'   },
+    error:    { color: 'bg-red-400',   label: '連線失敗'   },
+    checking: { color: 'bg-gray-400',  label: '連線中…'    },
   }[connStatus]
+
+  const handleNavClick = (id) => {
+    if (role === 'staff' && !STAFF_PAGES.has(id)) return
+    setPage(id)
+  }
 
   const handleGoToPOS = (customerName) => {
     setPreselectedCustomer(customerName)
     setPage('pos')
-  }
-
-  const handleNavClick = (id) => {
-    if (role === 'staff' && !['pos', 'orders'].includes(id)) return
-    setPage(id)
   }
 
   return (
@@ -79,9 +81,10 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span className="text-xl font-black tracking-wide">食農 POS</span>
           <span className="text-green-200 text-xs hidden sm:block">食農團購發貨系統</span>
-          {role === 'boss' && (
-            <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-0.5 rounded-full">老闆</span>
-          )}
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full
+            ${role === 'boss' ? 'bg-yellow-400 text-yellow-900' : 'bg-green-500 text-white'}`}>
+            {currentUser.name}（{currentUser.id}）
+          </span>
         </div>
 
         {/* 導覽：依角色顯示 */}
@@ -117,12 +120,13 @@ export default function App() {
           <POSPage
             preselectedCustomer={preselectedCustomer}
             onClearPreselect={() => setPreselectedCustomer(null)}
+            currentUser={currentUser}
           />
         )}
-        {page === 'orders'   && ['boss','staff'].includes(role) && <OrdersPage onGoToPOS={handleGoToPOS} />}
+        {page === 'orders'   && STAFF_PAGES.has('orders') && <OrdersPage onGoToPOS={handleGoToPOS} />}
         {page === 'stock'    && role === 'boss' && <StockSetupPage onOpenPOS={() => setPage('pos')} />}
         {page === 'reports'  && role === 'boss' && <ReportsPage />}
-        {page === 'settings' && role === 'boss' && <SettingsPage onSaved={checkConn} role={role} />}
+        {page === 'settings' && role === 'boss' && <SettingsPage onSaved={checkConn} />}
       </main>
     </div>
   )

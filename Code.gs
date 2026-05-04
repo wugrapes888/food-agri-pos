@@ -37,7 +37,7 @@ function _initHeaders(sheet, name) {
   const h = {
     [SH.PRODUCTS]:     ['商品名稱', '單價', '分類', '條碼', '庫存模式', '已到貨'],
     [SH.DAILY]:        ['日期', '商品名稱', '開攤數量', '售出數量', '剩餘數量', '單價'],
-    [SH.SALES]:        ['日期', '時間', '客人姓名', '客人類型', '商品名稱', '數量', '單價', '小計', '付款方式'],
+    [SH.SALES]:        ['日期', '時間', '客人姓名', '客人類型', '商品名稱', '數量', '單價', '小計', '付款方式', '員工編號', '員工姓名'],
     [SH.ORDERS]:       ['客人姓名', '商品名稱', '數量', '單價', '小計', '取貨狀態', '建立時間'],
     [SH.GRP_PRODUCTS]: ['商品名稱', '單價', '總訂購量', '剩餘待取量', '類型', '備註', '到貨狀態'],
   };
@@ -218,7 +218,8 @@ function setDailyStock(items) {
 // ── submitCheckout ────────────────────────────────────────────
 
 function submitCheckout(payload) {
-  const { customerName, customerType, items, paymentMethod, timestamp } = payload;
+  const { customerName, customerType, items, paymentMethod, timestamp,
+          staffId = '', staffName = '' } = payload;
 
   const salesSheet = getSheet(SH.SALES);
   const dailySheet = getSheet(SH.DAILY);
@@ -227,12 +228,13 @@ function submitCheckout(payload) {
     new Date(timestamp || Date.now()), Session.getScriptTimeZone(), 'HH:mm:ss'
   );
 
-  // 寫入銷售記錄
+  // 寫入銷售記錄（含員工資訊）
   items.forEach(item => {
     if (item.arrived === false) return;
     salesSheet.appendRow([
       today, timeStr, customerName, customerType,
-      item.name, item.qty, item.price, item.price * item.qty, paymentMethod
+      item.name, item.qty, item.price, item.price * item.qty, paymentMethod,
+      staffId, staffName
     ]);
   });
 

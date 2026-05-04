@@ -1,5 +1,12 @@
 import { useState } from 'react'
 
+export const DEFAULT_EMPLOYEES = [{ id: '316', name: '老闆', role: 'boss' }]
+
+export function getEmployees() {
+  try { return JSON.parse(localStorage.getItem('pos_employees')) || DEFAULT_EMPLOYEES }
+  catch { return DEFAULT_EMPLOYEES }
+}
+
 export default function LoginScreen({ onSuccess }) {
   const [input, setInput] = useState('')
   const [error, setError] = useState(false)
@@ -7,17 +14,11 @@ export default function LoginScreen({ onSuccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    const bossPwd  = localStorage.getItem('pos_password')  ?? '0980558012'
-    const staffPwd = localStorage.getItem('pos_staff_password') ?? '1234'
-
-    let role = null
-    if (input === bossPwd)  role = 'boss'
-    else if (input === staffPwd) role = 'staff'
-
-    if (role) {
+    const user = getEmployees().find(u => u.id === input.trim())
+    if (user) {
       sessionStorage.setItem('pos_authed', '1')
-      sessionStorage.setItem('pos_role', role)
-      onSuccess(role)
+      sessionStorage.setItem('pos_user', JSON.stringify(user))
+      onSuccess(user)
     } else {
       setError(true)
       setShake(true)
@@ -37,20 +38,21 @@ export default function LoginScreen({ onSuccess }) {
         onSubmit={handleSubmit}
         className={`bg-white rounded-2xl shadow-xl p-8 w-80 space-y-4 ${shake ? 'animate-shake' : ''}`}
       >
-        <h2 className="text-center font-bold text-gray-700 text-lg">請輸入密碼</h2>
+        <h2 className="text-center font-bold text-gray-700 text-lg">請輸入員工編號</h2>
 
         <input
-          type="password"
+          type="text"
+          inputMode="numeric"
           autoFocus
           value={input}
           onChange={e => { setInput(e.target.value); setError(false) }}
-          placeholder="密碼"
-          className={`w-full border rounded-lg px-4 py-3 text-center text-lg tracking-widest focus:outline-none
+          placeholder="員工編號"
+          className={`w-full border rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none
             ${error ? 'border-red-400 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-green-400'}`}
         />
 
         {error && (
-          <p className="text-center text-red-500 text-sm">密碼錯誤，請重試</p>
+          <p className="text-center text-red-500 text-sm">找不到此編號，請確認後重試</p>
         )}
 
         <button

@@ -82,7 +82,7 @@ const MOBILE_SUB = [
   { id: 'taiwanpay', label: '🇹🇼 台灣 Pay' },
 ]
 
-export default function POSPage({ preselectedCustomer, onClearPreselect }) {
+export default function POSPage({ preselectedCustomer, onClearPreselect, currentUser }) {
   const [products, setProducts]   = useState([])
   const [customers, setCustomers] = useState([])
   const [loading, setLoading]     = useState(true)
@@ -232,6 +232,8 @@ export default function POSPage({ preselectedCustomer, onClearPreselect }) {
         cashIn: payMethod === 'cash' ? cashInNum : total,
         change: payMethod === 'cash' ? (change ?? 0) : 0,
         timestamp: new Date().toISOString(),
+        staffId:   currentUser?.id   || '',
+        staffName: currentUser?.name || '',
       })
       setReceiptData({
         items: arrivedCart,
@@ -241,6 +243,7 @@ export default function POSPage({ preselectedCustomer, onClearPreselect }) {
         cashIn: cashInNum,
         change: change ?? 0,
         customerName: customerType === 'preorder' ? selectedCustomer : '散客',
+        staffName: currentUser?.name || '',
         time: new Date(),
       })
       setStep('receipt')
@@ -605,6 +608,11 @@ export default function POSPage({ preselectedCustomer, onClearPreselect }) {
               {receiptData.customerName !== '散客' && (
                 <div className="text-sm text-[#1D9E75] font-semibold mt-1">
                   👤 {receiptData.customerName}
+                </div>
+              )}
+              {receiptData.staffName && (
+                <div className="text-xs text-gray-400 mt-1">
+                  操作員工：{receiptData.staffName}
                 </div>
               )}
             </div>
