@@ -314,17 +314,19 @@ function TodayTab() {
 
 function RevenueTab() {
   const today = fmtDate(new Date())
-  const [dim,         setDim]         = useState('monthly')
+  const [dim,         setDim]         = useState('yearly')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd,   setCustomEnd]   = useState(today)
   const [loading,     setLoading]     = useState(false)
   const [currRows,    setCurrRows]    = useState([])
   const [prevRows,    setPrevRows]    = useState([])
+  const [gasError,    setGasError]    = useState('')
 
   useEffect(() => {
     if (dim === 'custom' && (!customStart || !customEnd || customStart > customEnd)) return
     let cancelled = false
     setLoading(true)
+    setGasError('')
     const range = getDimRange(dim, customStart, customEnd)
     const prev  = getPrevRange(range)
     Promise.all([
@@ -332,8 +334,8 @@ function RevenueTab() {
       getRevenueByDate(prev.start,  prev.end),
     ]).then(([c, p]) => {
       if (!cancelled) { setCurrRows(Array.isArray(c) ? c : []); setPrevRows(Array.isArray(p) ? p : []) }
-    }).catch(() => {
-      if (!cancelled) { setCurrRows([]); setPrevRows([]) }
+    }).catch(err => {
+      if (!cancelled) { setCurrRows([]); setPrevRows([]); setGasError(err.message) }
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])
@@ -354,7 +356,12 @@ function RevenueTab() {
       </div>
       <div className="text-xs text-gray-400 mb-4">{range.start} ～ {range.end}</div>
 
-      {loading ? <Spinner /> : (
+      {loading ? <Spinner /> : gasError ? (
+        <div className="text-center py-8 text-red-400 text-sm bg-red-50 rounded-xl p-4">
+          <div className="font-bold mb-1">GAS 回應錯誤</div>
+          <div className="font-mono text-xs">{gasError}</div>
+        </div>
+      ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
             <StatCard label="總收款"   value={`$${curr.revenue.toLocaleString()}`}  color="green" growth={growthPct(curr.revenue, prev.revenue)} />
@@ -397,22 +404,24 @@ function RevenueTab() {
 
 function ProductTab() {
   const today = fmtDate(new Date())
-  const [dim,         setDim]         = useState('monthly')
+  const [dim,         setDim]         = useState('yearly')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd,   setCustomEnd]   = useState(today)
   const [loading,     setLoading]     = useState(false)
   const [products,    setProducts]    = useState([])
   const [topN,        setTopN]        = useState(10)
   const [sortBy,      setSortBy]      = useState('amount')
+  const [gasError,    setGasError]    = useState('')
 
   useEffect(() => {
     if (dim === 'custom' && (!customStart || !customEnd || customStart > customEnd)) return
     let cancelled = false
     setLoading(true)
+    setGasError('')
     const range = getDimRange(dim, customStart, customEnd)
     getProductSales(range.start, range.end)
       .then(data => { if (!cancelled) setProducts(Array.isArray(data) ? data : []) })
-      .catch(() => { if (!cancelled) setProducts([]) })
+      .catch(err => { if (!cancelled) { setProducts([]); setGasError(err.message) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])
@@ -455,7 +464,12 @@ function ProductTab() {
             </div>
           </div>
 
-          {displayed.length === 0
+          {gasError ? (
+            <div className="text-center py-8 text-red-400 text-sm bg-red-50 rounded-xl p-4">
+              <div className="font-bold mb-1">GAS 回應錯誤</div>
+              <div className="font-mono text-xs">{gasError}</div>
+            </div>
+          ) : displayed.length === 0
             ? <div className="text-center py-10 text-gray-300 text-sm">此期間無銷售資料</div>
             : (
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -505,7 +519,7 @@ function ProductTab() {
 
 function ProfitTab() {
   const today = fmtDate(new Date())
-  const [dim,         setDim]         = useState('monthly')
+  const [dim,         setDim]         = useState('yearly')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd,   setCustomEnd]   = useState(today)
   const [loading,     setLoading]     = useState(false)
@@ -513,6 +527,7 @@ function ProfitTab() {
   const [costRecords, setCostRecords] = useState([])
   const [showForm,    setShowForm]    = useState(false)
   const [saving,      setSaving]      = useState(false)
+  const [gasError,    setGasError]    = useState('')
   const [form, setForm] = useState({ product: '', date: today, cost: '', note: '' })
 
   const reloadCosts = () => getCostRecords().then(setCostRecords)
@@ -528,10 +543,11 @@ function ProfitTab() {
     if (dim === 'custom' && (!customStart || !customEnd || customStart > customEnd)) return
     let cancelled = false
     setLoading(true)
+    setGasError('')
     const range = getDimRange(dim, customStart, customEnd)
     getProductProfit(range.start, range.end)
       .then(data => { if (!cancelled) setProfitData(Array.isArray(data) ? data : []) })
-      .catch(() => { if (!cancelled) setProfitData([]) })
+      .catch(err => { if (!cancelled) { setProfitData([]); setGasError(err.message) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [dim, customStart, customEnd])
@@ -663,7 +679,12 @@ function ProfitTab() {
       </div>
       <div className="text-xs text-gray-400 mb-4">{range.start} ～ {range.end}</div>
 
-      {loading ? <Spinner /> : profitData.length === 0 ? (
+      {loading ? <Spinner /> : gasError ? (
+        <div className="text-center py-8 text-red-400 text-sm bg-red-50 rounded-xl p-4">
+          <div className="font-bold mb-1">GAS 回應錯誤</div>
+          <div className="font-mono text-xs">{gasError}</div>
+        </div>
+      ) : profitData.length === 0 ? (
         <div className="text-center py-8 text-gray-300 text-sm">此期間無銷售資料</div>
       ) : (
         <>
