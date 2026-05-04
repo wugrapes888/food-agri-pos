@@ -23,8 +23,6 @@ export default function App() {
   const [connStatus, setConnStatus]           = useState('checking')
   const [preselectedCustomer, setPreselectedCustomer] = useState(null)
 
-  if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />
-
   const checkConn = () => {
     setConnStatus('checking')
     pingPOS()
@@ -32,15 +30,20 @@ export default function App() {
       .catch(() => setConnStatus('error'))
   }
 
-  useEffect(() => { checkConn() }, [])
+  useEffect(() => {
+    if (authed) checkConn()
+  }, [authed])
 
   // 每 4 分鐘靜默 ping，避免 GAS 冷啟動造成結帳延遲
   useEffect(() => {
+    if (!authed) return
     const id = setInterval(() => {
       if (getGasUrl()) pingPOS().catch(() => {})
     }, 4 * 60 * 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [authed])
+
+  if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />
 
   const statusDot = {
     ok:       { color: 'bg-green-400',  label: '已連線 GAS' },
