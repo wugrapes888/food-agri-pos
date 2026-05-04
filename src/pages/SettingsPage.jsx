@@ -5,7 +5,7 @@ import {
   syncFromExternalOrders,
 } from '../services/gasApi'
 
-export default function SettingsPage({ onSaved }) {
+export default function SettingsPage({ onSaved, role }) {
   const [url, setUrl]               = useState(getGasUrl)
   const [testing, setTesting]       = useState(false)
   const [result, setResult]         = useState(null) // { ok, msg }
@@ -14,14 +14,31 @@ export default function SettingsPage({ onSaved }) {
   const [importing, setImporting]   = useState(false)
   const [importResult, setImportResult] = useState(null) // { ok, msg }
 
-  const [pwdInput, setPwdInput]     = useState('')
-  const [pwdResult, setPwdResult]   = useState(null)
+  const [pwdInput, setPwdInput]         = useState('')
+  const [pwdResult, setPwdResult]       = useState(null)
+  const [staffPwdInput, setStaffPwdInput] = useState('')
+  const [staffPwdResult, setStaffPwdResult] = useState(null)
 
   const handleSavePwd = () => {
     localStorage.setItem('pos_password', pwdInput.trim())
     sessionStorage.setItem('pos_authed', '1')
-    setPwdResult({ ok: true, msg: pwdInput.trim() ? '密碼已更新' : '已清除密碼（不需登入）' })
+    setPwdResult({ ok: true, msg: pwdInput.trim() ? '老闆密碼已更新' : '已清除密碼（不需登入）' })
     setPwdInput('')
+  }
+
+  const handleSaveStaffPwd = () => {
+    if (!staffPwdInput.trim()) {
+      setStaffPwdResult({ ok: false, msg: '員工密碼不能為空' })
+      return
+    }
+    const bossPwd = localStorage.getItem('pos_password') ?? '0980558012'
+    if (staffPwdInput.trim() === bossPwd) {
+      setStaffPwdResult({ ok: false, msg: '員工密碼不能與老闆密碼相同' })
+      return
+    }
+    localStorage.setItem('pos_staff_password', staffPwdInput.trim())
+    setStaffPwdResult({ ok: true, msg: '員工密碼已更新' })
+    setStaffPwdInput('')
   }
 
   const handleTest = async () => {
@@ -171,13 +188,13 @@ export default function SettingsPage({ onSaved }) {
           )}
         </div>
 
-        {/* 密碼設定 */}
+        {/* 老闆密碼 */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
           <div>
-            <h2 className="font-bold text-gray-700">🔒 登入密碼</h2>
+            <h2 className="font-bold text-gray-700">👑 老闆密碼</h2>
             <p className="text-sm text-gray-500 mt-1">
+              登入後可使用全部功能（收銀、取貨、開攤、報表、設定）。<br/>
               預設密碼為 <code className="bg-gray-100 px-1 rounded">0980558012</code>。
-              輸入新密碼後儲存即生效；留白並儲存則取消密碼保護。
             </p>
           </div>
 
@@ -185,7 +202,7 @@ export default function SettingsPage({ onSaved }) {
             type="password"
             value={pwdInput}
             onChange={e => { setPwdInput(e.target.value); setPwdResult(null) }}
-            placeholder="輸入新密碼（留白 = 取消密碼保護）"
+            placeholder="輸入新老闆密碼"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400"
           />
 
@@ -193,13 +210,46 @@ export default function SettingsPage({ onSaved }) {
             onClick={handleSavePwd}
             className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700"
           >
-            💾 儲存密碼
+            💾 儲存老闆密碼
           </button>
 
           {pwdResult && (
             <div className={`px-3 py-2 rounded-lg text-sm font-medium
               ${pwdResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
               {pwdResult.msg}
+            </div>
+          )}
+        </div>
+
+        {/* 員工密碼 */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div>
+            <h2 className="font-bold text-gray-700">👤 員工密碼</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              員工登入後只能使用<span className="font-semibold text-gray-700">收銀</span>功能，其他頁面皆隱藏。<br/>
+              預設密碼為 <code className="bg-gray-100 px-1 rounded">1234</code>，請更改為不易猜到的密碼。
+            </p>
+          </div>
+
+          <input
+            type="password"
+            value={staffPwdInput}
+            onChange={e => { setStaffPwdInput(e.target.value); setStaffPwdResult(null) }}
+            placeholder="輸入新員工密碼"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400"
+          />
+
+          <button
+            onClick={handleSaveStaffPwd}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+          >
+            💾 儲存員工密碼
+          </button>
+
+          {staffPwdResult && (
+            <div className={`px-3 py-2 rounded-lg text-sm font-medium
+              ${staffPwdResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+              {staffPwdResult.msg}
             </div>
           )}
         </div>

@@ -7,10 +7,17 @@ export default function LoginScreen({ onSuccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    const saved = localStorage.getItem('pos_password') ?? '0980558012'
-    if (input === saved) {
+    const bossPwd  = localStorage.getItem('pos_password')  ?? '0980558012'
+    const staffPwd = localStorage.getItem('pos_staff_password') ?? '1234'
+
+    let role = null
+    if (input === bossPwd)  role = 'boss'
+    else if (input === staffPwd) role = 'staff'
+
+    if (role) {
       sessionStorage.setItem('pos_authed', '1')
-      onSuccess()
+      sessionStorage.setItem('pos_role', role)
+      onSuccess(role)
     } else {
       setError(true)
       setShake(true)

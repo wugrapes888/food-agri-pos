@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import POSPage from './pages/POSPage'
 import OrdersPage from './pages/OrdersPage'
 import StockSetupPage from './pages/StockSetupPage'
@@ -7,28 +7,24 @@ import SettingsPage from './pages/SettingsPage'
 import LoginScreen from './components/LoginScreen'
 import { pingPOS, getGasUrl } from './services/gasApi'
 
-const NAV = [
-  { id: 'pos',      label: '🛒 收銀'    },
-  { id: 'orders',   label: '📋 取貨'    },
-  { id: 'stock',    label: '📦 開攤'    },
-  { id: 'reports',  label: '📊 報表'    },
-  { id: 'settings', label: '⚙️ 設定'   },
+const NAV_ALL = [
+  { id: 'pos',      label: '🛒 收銀'  },
+  { id: 'orders',   label: '📋 取貨'  },
+  { id: 'stock',    label: '📦 開攤'  },
+  { id: 'reports',  label: '📊 報表'  },
+  { id: 'settings', label: '⚙️ 設定' },
 ]
+const NAV_STAFF = NAV_ALL.filter(n => n.id === 'pos')
 
 export default function App() {
-  const hasPassword = () => (localStorage.getItem('pos_password') ?? '0980558012') !== ''
-  const [authed, setAuthed] = useState(() => !hasPassword() || sessionStorage.getItem('pos_authed') === '1')
+  const [role, setRole] = useState(() => sessionStorage.getItem('pos_role') || null)
+  const authed = role !== null && sessionStorage.getItem('pos_authed') === '1'
 
-  const [page, setPage]                       = useState('pos')
-  const [connStatus, setConnStatus]           = useState('checking')
+  const [page, setPage]         = useState('pos')
+  const [connStatus, setConnStatus] = useState('checking')
   const [preselectedCustomer, setPreselectedCustomer] = useState(null)
 
-  // 報表密碼門控（session 內有效，重整需重新輸入）
-  const [reportAuthed, setReportAuthed] = useState(() => sessionStorage.getItem('report_authed') === '1')
-  const [showReportGate, setShowReportGate] = useState(false)
-  const [reportPwd, setReportPwd] = useState('')
-  const [reportPwdErr, setReportPwdErr] = useState(false)
-  const reportPwdRef = useRef(null)
+  const nav = role === 'boss' ? NAV_ALL : NAV_STAFF
 
   const checkConn = () => {
     setConnStatus('checking')
@@ -41,7 +37,6 @@ export default function App() {
     if (authed) checkConn()
   }, [authed])
 
-  // 每 4 分鐘靜默 ping，避免 GAS 冷啟動造成結帳延遲
   useEffect(() => {
     if (!authed) return
     const id = setInterval(() => {
@@ -50,7 +45,14 @@ export default function App() {
     return () => clearInterval(id)
   }, [authed])
 
-  if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />
+  // 員工只能停在收銀頁
+  useEffect(() => {
+    if (role === 'staff' && page !== 'pos') setPage('pos')
+  }, [role, page])
+
+  if (!authed) {
+    return <LoginScreen onSuccess={(r) => setRole(r)} />
+  }
 
   const statusDot = {
     ok:       { color: 'bg-green-400',  label: '已連線 GAS' },
@@ -59,36 +61,14 @@ export default function App() {
     checking: { color: 'bg-gray-400',   label: '連線中…'    },
   }[connStatus]
 
-  // 報表密碼驗證
-  const handleNavClick = (id) => {
-    if (id === 'reports' && !reportAuthed) {
-      setReportPwd('')
-      setReportPwdErr(false)
-      setShowReportGate(true)
-      setTimeout(() => reportPwdRef.current?.focus(), 80)
-      return
-    }
-    setPage(id)
-  }
-
-  const submitReportPwd = () => {
-    const stored = localStorage.getItem('report_password') || '316'
-    if (reportPwd === stored) {
-      sessionStorage.setItem('report_authed', '1')
-      setReportAuthed(true)
-      setShowReportGate(false)
-      setPage('reports')
-    } else {
-      setReportPwdErr(true)
-      setReportPwd('')
-      setTimeout(() => reportPwdRef.current?.focus(), 50)
-    }
-  }
-
-  // 從取貨管理頁跳轉到收銀並帶入客人
   const handleGoToPOS = (customerName) => {
     setPreselectedCustomer(customerName)
     setPage('pos')
+  }
+
+  const handleNavClick = (id) => {
+    if (role === 'staff' && id !== 'pos') return
+    setPage(id)
   }
 
   return (
@@ -99,11 +79,14 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span className="text-xl font-black tracking-wide">食農 POS</span>
           <span className="text-green-200 text-xs hidden sm:block">食農團購發貨系統</span>
+          {role === 'boss' && (
+            <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-0.5 rounded-full">老闆</span>
+          )}
         </div>
 
-        {/* 導覽 */}
+        {/* 導覽：依角色顯示 */}
         <nav className="flex gap-0.5">
-          {NAV.map(n => (
+          {nav.map(n => (
             <button
               key={n.id}
               onClick={() => handleNavClick(n.id)}
@@ -120,8 +103,8 @@ export default function App() {
         {/* 連線狀態 */}
         <div
           className="flex items-center gap-2 cursor-pointer"
-          onClick={() => setPage('settings')}
-          title="點擊前往設定"
+          onClick={() => role === 'boss' && setPage('settings')}
+          title={role === 'boss' ? '點擊前往設定' : ''}
         >
           <div className={`w-2.5 h-2.5 rounded-full ${statusDot.color} animate-pulse`} />
           <span className="text-xs text-green-100 hidden sm:block">{statusDot.label}</span>
@@ -136,51 +119,11 @@ export default function App() {
             onClearPreselect={() => setPreselectedCustomer(null)}
           />
         )}
-        {page === 'orders' && (
-          <OrdersPage onGoToPOS={handleGoToPOS} />
-        )}
-        {page === 'stock'   && <StockSetupPage onOpenPOS={() => setPage('pos')} />}
-        {page === 'reports' && <ReportsPage />}
-        {page === 'settings' && (
-          <SettingsPage onSaved={checkConn} />
-        )}
+        {page === 'orders'   && role === 'boss' && <OrdersPage onGoToPOS={handleGoToPOS} />}
+        {page === 'stock'    && role === 'boss' && <StockSetupPage onOpenPOS={() => setPage('pos')} />}
+        {page === 'reports'  && role === 'boss' && <ReportsPage />}
+        {page === 'settings' && role === 'boss' && <SettingsPage onSaved={checkConn} role={role} />}
       </main>
-
-      {/* ── 報表密碼門控 Modal ─────────────────── */}
-      {showReportGate && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl w-80 overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center justify-between">
-              <span className="font-bold text-gray-800">🔒 報表存取</span>
-              <button onClick={() => setShowReportGate(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
-            </div>
-            <div className="px-5 py-5">
-              <p className="text-sm text-gray-500 mb-3">請輸入密碼以查看報表</p>
-              <input
-                ref={reportPwdRef}
-                type="password"
-                value={reportPwd}
-                onChange={e => { setReportPwd(e.target.value); setReportPwdErr(false) }}
-                onKeyDown={e => e.key === 'Enter' && submitReportPwd()}
-                placeholder="輸入密碼"
-                className={`w-full border rounded-lg px-3 py-2.5 text-base outline-none transition-colors
-                  ${reportPwdErr ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-green-500'}`}
-              />
-              {reportPwdErr && <p className="text-red-500 text-xs mt-1.5">密碼錯誤，請再試一次</p>}
-            </div>
-            <div className="px-5 pb-5 flex gap-2 justify-end">
-              <button onClick={() => setShowReportGate(false)}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
-                取消
-              </button>
-              <button onClick={submitReportPwd}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white hover:bg-green-700">
-                🔓 確認
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
