@@ -16,6 +16,7 @@ const SH = {
   ORDERS:       '訂單明細',   // 預購訂單（與群購系統共用）
   GRP_PRODUCTS: '商品清單',   // 群購商品清單（與群購系統共用）
   COSTS:        '成本設定',   // 進貨成本記錄（商品名稱、進貨日期、每單位成本）
+  BATCHES:      '進貨批次',   // 批次進貨記錄（ID、商品、日期、數量、單位成本、剩餘）
   CUSTOMERS:    '客人資料',   // 客人基本資料（姓名、手機）
 };
 
@@ -43,6 +44,7 @@ function _initHeaders(sheet, name) {
     [SH.ORDERS]:       ['客人姓名', '商品名稱', '數量', '單價', '小計', '取貨狀態', '建立時間'],
     [SH.GRP_PRODUCTS]: ['商品名稱', '單價', '總訂購量', '剩餘待取量', '類型', '備註', '到貨狀態'],
     [SH.COSTS]:        ['商品名稱', '進貨日期', '每單位成本', '備註'],
+    [SH.BATCHES]:      ['ID', '商品名稱', '進貨日期', '數量', '單位', '單位成本', '總成本', '剩餘數量', '備註'],
     [SH.CUSTOMERS]:    ['客人姓名', '手機'],
   };
   if (h[name]) {
@@ -140,8 +142,32 @@ function doPost(e) {
       case 'getProductProfit':
         result = getProductProfit(body.startDate, body.endDate);
         break;
+      case 'getPurchaseBatches':
+        result = getPurchaseBatches();
+        break;
+      case 'savePurchaseBatch':
+        result = savePurchaseBatch(body.product, body.purchaseDate, body.qty, body.unit, body.unitCost, body.note);
+        break;
+      case 'deletePurchaseBatch':
+        result = deletePurchaseBatch(body.id);
+        break;
+      case 'updatePurchaseBatch':
+        result = updatePurchaseBatch(body.id, body);
+        break;
+      case 'getProfitByDate':
+        result = getProfitByDate(body.startDate, body.endDate);
+        break;
+      case 'getBatchProfit':
+        result = getBatchProfit();
+        break;
+      case 'getChannelStats':
+        result = getChannelStats(body.startDate, body.endDate);
+        break;
       case 'debugSales':
         result = debugSales();
+        break;
+      case 'getTodaySales':
+        result = getTodaySales();
         break;
       default:
         result = { error: 'Unknown action: ' + action };
@@ -769,6 +795,230 @@ function syncFromExternalOrders(spreadsheetId) {
   } catch (err) {
     return { success: false, error: err.toString() };
   }
+}
+
+// ── getTodaySales ─────────────────────────────────────────────
+// 回傳今日所有結帳交易，以 (時間+客人+付款) 為單位分組
+
+function getTodaySales() {
+  const sheet = getSheet(SH.SALES);
+  const data  = sheet.getDataRange().getValues();
+  const today = todayStr();
+
+  const todayRows = data.slice(1).filter(r => toDateStr(r[0]) === today);
+
+  const txMap = {};
+  todayRows.forEach(r => {
+    const key = r[1] + '__' + r[2] + '__' + r[8];
+    if (!txMap[key]) {
+      txMap[key] = {
+        time:          r[1]  || '',
+        customerName:  r[2]  || '',
+        customerType:  r[3]  || '',
+        paymentMethod: r[8]  || '',
+        staffName:     r[10] || '',
+        items:         [],
+        total:         0,
+      };
+    }
+    txMap[key].items.push({ name: String(r[4]), qty: Number(r[5]), price: Number(r[6]), subtotal: Number(r[7]) });
+    txMap[key].total += Number(r[7]);
+  });
+
+  return Object.values(txMap).sort((a, b) => a.time.localeCompare(b.time));
+}
+
+// ── getPurchaseBatches ────────────────────────────────────────
+
+function getPurchaseBatches() {
+  const sheet = getSheet(SH.BATCHES);
+  const data  = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  return data.slice(1)
+    .filter(r => r[0])
+    .map(r => ({
+      id:           Number(r[0]),
+      product:      String(r[1]),
+      purchaseDate: toDateStr(r[2]),
+      qty:          Number(r[3]),
+      unit:         String(r[4] || ''),
+      unitCost:     Number(r[5]),
+      totalCost:    Number(r[6]),
+      remainingQty: Number(r[7]),
+      note:         String(r[8] || ''),
+    }))
+    .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate));
+}
+
+// ── savePurchaseBatch ─────────────────────────────────────────
+
+function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note) {
+  const sheet = getSheet(SH.BATCHES);
+  const data  = sheet.getDataRange().getValues();
+  const maxId = data.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
+  const id    = maxId + 1;
+  const qtyN  = Number(qty);
+  const costN = Number(unitCost);
+  sheet.appendRow([id, product, purchaseDate, qtyN, unit || '', costN, qtyN * costN, qtyN, note || '']);
+  SpreadsheetApp.flush();
+  return { success: true, id };
+}
+
+// ── updatePurchaseBatch ───────────────────────────────────────
+
+function updatePurchaseBatch(id, updates) {
+  const sheet = getSheet(SH.BATCHES);
+  const data  = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (Number(data[i][0]) === Number(id)) {
+      if (updates.product      !== undefined) sheet.getRange(i + 1, 2).setValue(updates.product);
+      if (updates.purchaseDate !== undefined) sheet.getRange(i + 1, 3).setValue(updates.purchaseDate);
+      if (updates.qty          !== undefined) sheet.getRange(i + 1, 4).setValue(Number(updates.qty));
+      if (updates.unit         !== undefined) sheet.getRange(i + 1, 5).setValue(updates.unit);
+      const qty      = updates.qty      !== undefined ? Number(updates.qty)      : Number(data[i][3]);
+      const unitCost = updates.unitCost !== undefined ? Number(updates.unitCost) : Number(data[i][5]);
+      if (updates.unitCost !== undefined) sheet.getRange(i + 1, 6).setValue(unitCost);
+      sheet.getRange(i + 1, 7).setValue(qty * unitCost);
+      SpreadsheetApp.flush();
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Batch not found' };
+}
+
+// ── deletePurchaseBatch ───────────────────────────────────────
+
+function deletePurchaseBatch(id) {
+  const sheet = getSheet(SH.BATCHES);
+  const data  = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (Number(data[i][0]) === Number(id)) sheet.deleteRow(i + 1);
+  }
+  SpreadsheetApp.flush();
+  return { success: true };
+}
+
+// ── getProfitByDate ───────────────────────────────────────────
+// 回傳指定日期範圍的每日毛利資料（供趨勢圖使用）
+
+function getProfitByDate(startDate, endDate) {
+  const salesSheet = getSheet(SH.SALES);
+  const costSheet  = getSheet(SH.COSTS);
+  const salesData  = salesSheet.getDataRange().getValues();
+  const costData   = costSheet.getDataRange().getValues();
+
+  const costMap = {};
+  costData.slice(1).forEach(r => {
+    if (!r[0]) return;
+    const p = String(r[0]);
+    if (!costMap[p]) costMap[p] = [];
+    costMap[p].push({ date: toDateStr(r[1]), cost: Number(r[2]) });
+  });
+  Object.values(costMap).forEach(arr => arr.sort((a, b) => a.date.localeCompare(b.date)));
+
+  function lookupCost(product, saleDate) {
+    const records = costMap[product];
+    if (!records) return null;
+    let found = null;
+    for (const r of records) {
+      if (r.date <= saleDate) found = r.cost;
+      else break;
+    }
+    return found;
+  }
+
+  const dayMap = {};
+  salesData.slice(1).forEach(r => {
+    const d = toDateStr(r[0]);
+    if (!d || d < startDate || d > endDate) return;
+    if (!dayMap[d]) dayMap[d] = { date: d, revenue: 0, cogs: 0, hasCost: false };
+    const name     = String(r[4]);
+    const qty      = Number(r[5]);
+    const amount   = Number(r[7]);
+    const unitCost = lookupCost(name, d);
+    dayMap[d].revenue += amount;
+    if (unitCost !== null) {
+      dayMap[d].cogs    += qty * unitCost;
+      dayMap[d].hasCost  = true;
+    }
+  });
+
+  return Object.values(dayMap).map(d => {
+    const grossProfit = d.hasCost ? d.revenue - d.cogs : null;
+    const marginPct   = (grossProfit !== null && d.revenue > 0)
+      ? Math.round(grossProfit / d.revenue * 100) : null;
+    return { date: d.date, revenue: d.revenue, cogs: d.cogs, grossProfit, marginPct };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── getBatchProfit ────────────────────────────────────────────
+// 依批次計算已售數量及估算毛利
+
+function getBatchProfit() {
+  const batchSheet = getSheet(SH.BATCHES);
+  const salesSheet = getSheet(SH.SALES);
+  const batchData  = batchSheet.getDataRange().getValues();
+  const salesData  = salesSheet.getDataRange().getValues();
+
+  if (batchData.length <= 1) return [];
+
+  const priceMap = {};
+  salesData.slice(1).forEach(r => {
+    const name = String(r[4]), qty = Number(r[5]), amount = Number(r[7]);
+    if (!priceMap[name]) priceMap[name] = { revenue: 0, qty: 0 };
+    priceMap[name].revenue += amount;
+    priceMap[name].qty     += qty;
+  });
+
+  return batchData.slice(1).filter(r => r[0]).map(r => {
+    const product      = String(r[1]);
+    const batchQty     = Number(r[3]);
+    const unitCost     = Number(r[5]);
+    const remainingQty = Number(r[7]);
+    const soldQty      = Math.max(0, batchQty - remainingQty);
+    const soldCost     = soldQty * unitCost;
+    const pData        = priceMap[product];
+    const avgPrice     = pData && pData.qty > 0 ? pData.revenue / pData.qty : 0;
+    const batchRev     = Math.round(soldQty * avgPrice);
+    const profit       = avgPrice > 0 ? batchRev - soldCost : null;
+    const margin       = (profit !== null && batchRev > 0) ? Math.round(profit / batchRev * 100) : null;
+    return {
+      id: Number(r[0]), product, purchaseDate: toDateStr(r[2]),
+      batchQty, soldQty, remainingQty,
+      unitCost, batchCost: batchQty * unitCost, soldCost,
+      batchRevenue: batchRev, grossProfit: profit, grossMargin: margin,
+    };
+  });
+}
+
+// ── getChannelStats ───────────────────────────────────────────
+// 依客人類型（preorder/walk）彙總通路收款
+
+function getChannelStats(startDate, endDate) {
+  const sheet = getSheet(SH.SALES);
+  const data  = sheet.getDataRange().getValues();
+
+  const map = {};
+  data.slice(1).forEach(r => {
+    const d = toDateStr(r[0]);
+    if (!d || d < startDate || d > endDate) return;
+    const type   = String(r[3]);
+    const amount = Number(r[7]);
+    const txKey  = r[1] + '|' + r[2] + '|' + r[8];
+    const channel = type === 'preorder' ? 'pre' : 'pos';
+    if (!map[channel]) map[channel] = { revenue: 0, txSet: new Set() };
+    map[channel].revenue += amount;
+    map[channel].txSet.add(txKey);
+  });
+
+  const LABEL = { pos: '現場POS', pre: '預購', line: 'LINE' };
+  return Object.entries(map).map(([ch, d]) => ({
+    channel: ch,
+    channelLabel: LABEL[ch] || ch,
+    revenue: d.revenue,
+    orders:  d.txSet.size,
+    avgOrder: d.txSet.size > 0 ? Math.round(d.revenue / d.txSet.size) : 0,
+  }));
 }
 
 // ── debugSales ────────────────────────────────────────────────

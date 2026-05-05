@@ -133,6 +133,29 @@ function _buildMockDailyRevenue() {
 }
 const MOCK_DAILY_REVENUE = _buildMockDailyRevenue();
 
+function _buildMockDailyProfit() {
+  let seed = 42
+  const rng = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff }
+  return MOCK_DAILY_REVENUE.map(r => {
+    const margin = 0.28 + rng() * 0.18
+    const grossProfit = Math.round(r.revenue * margin)
+    const cogs = r.revenue - grossProfit
+    return { date: r.date, revenue: r.revenue, cogs, grossProfit, marginPct: Math.round(margin * 100) }
+  })
+}
+const MOCK_DAILY_PROFIT = _buildMockDailyProfit();
+
+let MOCK_PURCHASE_BATCHES = [
+  { id: 1, product: '草莓',           purchaseDate: '2026-04-01', qty: 50,  unit: '盒', unitCost: 80,  totalCost: 4000, remainingQty: 5,  note: '' },
+  { id: 2, product: '草莓',           purchaseDate: '2026-05-01', qty: 60,  unit: '盒', unitCost: 95,  totalCost: 5700, remainingQty: 42, note: '季末漲價' },
+  { id: 3, product: '巨峰葡萄',       purchaseDate: '2026-04-01', qty: 40,  unit: '串', unitCost: 120, totalCost: 4800, remainingQty: 10, note: '' },
+  { id: 4, product: '土雞蛋(10入)',   purchaseDate: '2026-04-01', qty: 80,  unit: '盒', unitCost: 50,  totalCost: 4000, remainingQty: 20, note: '' },
+  { id: 5, product: '蜂蜜(500g)',     purchaseDate: '2026-04-01', qty: 20,  unit: '罐', unitCost: 200, totalCost: 4000, remainingQty: 8,  note: '' },
+  { id: 6, product: '溫家韭菜水餃',   purchaseDate: '2026-04-01', qty: 50,  unit: '包', unitCost: 65,  totalCost: 3250, remainingQty: 15, note: '' },
+  { id: 7, product: '溫家高麗菜水餃', purchaseDate: '2026-04-01', qty: 40,  unit: '包', unitCost: 65,  totalCost: 2600, remainingQty: 10, note: '' },
+  { id: 8, product: '玉米',           purchaseDate: '2026-04-01', qty: 100, unit: '支', unitCost: 28,  totalCost: 2800, remainingQty: 60, note: '' },
+]
+
 const MOCK_COST_RECORDS = [
   { product: '草莓',              date: '2026-04-01', cost:  80, note: '' },
   { product: '草莓',              date: '2026-05-01', cost:  95, note: '季末漲價' },
@@ -332,33 +355,122 @@ export async function deleteCostRecord(product, date) {
 
 export async function getProductProfit(startDate, endDate) {
   if (isMock()) {
-    const costMap = {};
-    MOCK_COST_RECORDS.forEach(r => {
-      if (!costMap[r.product]) costMap[r.product] = [];
-      costMap[r.product].push({ date: r.date, cost: r.cost });
-    });
-    Object.values(costMap).forEach(arr => arr.sort((a, b) => a.date.localeCompare(b.date)));
-
+    const costMap = {}
+    MOCK_PURCHASE_BATCHES.forEach(b => {
+      if (!costMap[b.product]) costMap[b.product] = { total: 0, qty: 0 }
+      costMap[b.product].total += b.totalCost
+      costMap[b.product].qty   += b.qty
+    })
     return MOCK_PRODUCT_SALES_DATA.map(p => {
-      const records = costMap[p.name];
-      let unitCost = null;
-      if (records) {
-        const valid = records.filter(r => r.date <= endDate);
-        if (valid.length > 0) unitCost = valid[valid.length - 1].cost;
-      }
-      const totalCost   = unitCost !== null ? p.qty * unitCost : null;
-      const grossProfit = totalCost !== null ? p.amount - totalCost : null;
+      const c = costMap[p.name]
+      const avgUnitCost = c ? c.total / c.qty : null
+      const totalCost   = avgUnitCost !== null ? Math.round(p.qty * avgUnitCost) : null
+      const grossProfit = totalCost !== null ? p.amount - totalCost : null
       const grossMargin = (grossProfit !== null && p.amount > 0)
-        ? Math.round(grossProfit / p.amount * 100) : null;
-      return { name: p.name, qty: p.qty, amount: p.amount, totalCost, grossProfit, grossMargin };
-    });
+        ? Math.round(grossProfit / p.amount * 100) : null
+      return { name: p.name, qty: p.qty, amount: p.amount, totalCost, grossProfit, grossMargin }
+    }).sort((a, b) => b.amount - a.amount)
   }
   return gasCall('getProductProfit', { startDate, endDate });
+}
+
+export async function getPurchaseBatches() {
+  if (isMock()) return [...MOCK_PURCHASE_BATCHES].sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))
+  return gasCall('getPurchaseBatches')
+}
+
+export async function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note) {
+  if (isMock()) {
+    const id = Math.max(0, ...MOCK_PURCHASE_BATCHES.map(b => b.id)) + 1
+    const q = Number(qty), c = Number(unitCost)
+    MOCK_PURCHASE_BATCHES = [...MOCK_PURCHASE_BATCHES, { id, product, purchaseDate, qty: q, unit: unit || '', unitCost: c, totalCost: q * c, remainingQty: q, note: note || '' }]
+    return { success: true, mock: true }
+  }
+  return gasCall('savePurchaseBatch', { product, purchaseDate, qty, unit, unitCost, note })
+}
+
+export async function deletePurchaseBatch(id) {
+  if (isMock()) {
+    MOCK_PURCHASE_BATCHES = MOCK_PURCHASE_BATCHES.filter(b => b.id !== id)
+    return { success: true, mock: true }
+  }
+  return gasCall('deletePurchaseBatch', { id })
+}
+
+export async function updatePurchaseBatch(id, updates) {
+  if (isMock()) {
+    MOCK_PURCHASE_BATCHES = MOCK_PURCHASE_BATCHES.map(b => {
+      if (b.id !== id) return b
+      const merged = { ...b }
+      if (updates.product      !== undefined) merged.product      = updates.product
+      if (updates.purchaseDate !== undefined) merged.purchaseDate = updates.purchaseDate
+      if (updates.qty          !== undefined) merged.qty          = Number(updates.qty)
+      if (updates.unit         !== undefined) merged.unit         = updates.unit
+      if (updates.unitCost     !== undefined) merged.unitCost     = Number(updates.unitCost)
+      merged.totalCost = merged.qty * merged.unitCost
+      return merged
+    })
+    return { success: true, mock: true }
+  }
+  return gasCall('updatePurchaseBatch', { id, ...updates })
+}
+
+export async function getProfitByDate(startDate, endDate) {
+  if (isMock()) return MOCK_DAILY_PROFIT.filter(r => r.date >= startDate && r.date <= endDate)
+  return gasCall('getProfitByDate', { startDate, endDate })
+}
+
+export async function getBatchProfit() {
+  if (isMock()) {
+    const priceMap = {}
+    MOCK_PRODUCT_SALES_DATA.forEach(p => { priceMap[p.name] = p.qty > 0 ? p.amount / p.qty : 0 })
+    return MOCK_PURCHASE_BATCHES.map(b => {
+      const soldQty  = b.qty - b.remainingQty
+      const avgPrice = priceMap[b.product] || 0
+      const batchRev = Math.round(soldQty * avgPrice)
+      const soldCost = soldQty * b.unitCost
+      const profit   = avgPrice > 0 ? batchRev - soldCost : null
+      const margin   = (profit !== null && batchRev > 0) ? Math.round(profit / batchRev * 100) : null
+      return {
+        id: b.id, product: b.product, purchaseDate: b.purchaseDate,
+        batchQty: b.qty, soldQty, remainingQty: b.remainingQty,
+        unitCost: b.unitCost, batchCost: b.qty * b.unitCost, soldCost,
+        batchRevenue: batchRev, grossProfit: profit, grossMargin: margin,
+      }
+    })
+  }
+  return gasCall('getBatchProfit')
+}
+
+export async function getChannelStats(startDate, endDate) {
+  if (isMock()) {
+    const total   = MOCK_PRODUCT_SALES_DATA.reduce((s, p) => s + p.amount, 0)
+    const posRev  = Math.round(total * 0.45)
+    const preRev  = Math.round(total * 0.38)
+    const lineRev = Math.round(total * 0.17)
+    return [
+      { channel: 'pos',  channelLabel: '現場POS', revenue: posRev,  orders: 48, avgOrder: Math.round(posRev  / 48) },
+      { channel: 'pre',  channelLabel: '預購',     revenue: preRev,  orders: 35, avgOrder: Math.round(preRev  / 35) },
+      { channel: 'line', channelLabel: 'LINE',     revenue: lineRev, orders: 22, avgOrder: Math.round(lineRev / 22) },
+    ]
+  }
+  return gasCall('getChannelStats', { startDate, endDate })
 }
 
 export async function debugSales() {
   if (isMock()) return { mock: true };
   return gasCall('debugSales');
+}
+
+export async function getTodaySales() {
+  if (isMock()) return [
+    { time: '09:30:00', customerName: '小明', customerType: 'preorder', paymentMethod: 'cash',     staffName: '小美', total: 400, items: [{ name: '草莓', qty: 2, price: 150, subtotal: 300 }, { name: '溫家韭菜水餃', qty: 1, price: 100, subtotal: 100 }] },
+    { time: '10:15:00', customerName: '散客', customerType: 'walk',     paymentMethod: 'linepay',  staffName: '小美', total: 180, items: [{ name: '玉米', qty: 3, price: 60, subtotal: 180 }] },
+    { time: '10:50:00', customerName: '王大明', customerType: 'preorder', paymentMethod: 'transfer', staffName: '老闆', total: 240, items: [{ name: '土雞蛋(10入)', qty: 3, price: 80, subtotal: 240 }] },
+    { time: '11:20:00', customerName: '散客', customerType: 'walk',     paymentMethod: 'cash',     staffName: '小美', total: 700, items: [{ name: '巨峰葡萄', qty: 2, price: 200, subtotal: 400 }, { name: '蜂蜜(500g)', qty: 1, price: 350, subtotal: 350 }] },
+    { time: '13:05:00', customerName: '陳小花', customerType: 'preorder', paymentMethod: 'cash',    staffName: '老闆', total: 1000, items: [{ name: '蜂蜜(500g)', qty: 2, price: 350, subtotal: 700 }, { name: '玉米', qty: 5, price: 60, subtotal: 300 }] },
+  ];
+  return gasCall('getTodaySales');
 }
 
 export async function renameProduct(oldName, newName) {
