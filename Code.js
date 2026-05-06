@@ -103,7 +103,7 @@ function doPost(e) {
         result = getPurchaseBatches();
         break;
       case 'savePurchaseBatch':
-        result = savePurchaseBatch(body.product, body.purchaseDate, body.qty, body.unit, body.unitCost, body.note);
+        result = savePurchaseBatch(body.product, body.purchaseDate, body.qty, body.unit, body.unitCost, body.note, body.sellingPrice);
         break;
       case 'deletePurchaseBatch':
         result = deletePurchaseBatch(body.id);
