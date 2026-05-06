@@ -379,14 +379,14 @@ export async function getPurchaseBatches() {
   return gasCall('getPurchaseBatches')
 }
 
-export async function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note) {
+export async function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note, sellingPrice) {
   if (isMock()) {
     const id = Math.max(0, ...MOCK_PURCHASE_BATCHES.map(b => b.id)) + 1
-    const q = Number(qty), c = Number(unitCost)
-    MOCK_PURCHASE_BATCHES = [...MOCK_PURCHASE_BATCHES, { id, product, purchaseDate, qty: q, unit: unit || '', unitCost: c, totalCost: q * c, remainingQty: q, note: note || '' }]
+    const q = Number(qty), c = Number(unitCost), sp = Number(sellingPrice) || 0
+    MOCK_PURCHASE_BATCHES = [...MOCK_PURCHASE_BATCHES, { id, product, purchaseDate, qty: q, unit: unit || '', unitCost: c, totalCost: q * c, remainingQty: q, note: note || '', sellingPrice: sp }]
     return { success: true, mock: true }
   }
-  return gasCall('savePurchaseBatch', { product, purchaseDate, qty, unit, unitCost, note })
+  return gasCall('savePurchaseBatch', { product, purchaseDate, qty, unit, unitCost, note, sellingPrice: Number(sellingPrice) || 0 })
 }
 
 export async function deletePurchaseBatch(id) {

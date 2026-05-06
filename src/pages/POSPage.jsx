@@ -71,6 +71,79 @@ function FixedNumpad({ onChange }) {
   )
 }
 
+// ── Custom Item Modal ─────────────────────────────────────────
+function CustomItemModal({ onConfirm, onClose }) {
+  const [name, setName] = useState('自訂品項')
+  const [price, setPrice] = useState('')
+  const nameRef = useRef(null)
+
+  useEffect(() => { nameRef.current?.select() }, [])
+
+  const press = (k) => {
+    if (k === '⌫') { setPrice(p => p.slice(0, -1)); return }
+    setPrice(p => (p + k).replace(/^0+(\d)/, '$1'))
+  }
+
+  const handleConfirm = () => {
+    const p = Number(price)
+    if (!p || p <= 0) return
+    onConfirm({ name: name.trim() || '自訂品項', price: p, qty: 1, isPreorder: false, arrived: true, isCustom: true })
+  }
+
+  const btn = 'h-[48px] rounded-xl text-xl font-bold select-none transition-all active:scale-95'
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-80 p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-gray-800 text-lg">自訂品項</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+
+        {/* Name input */}
+        <div>
+          <label className="text-xs text-gray-500 font-semibold mb-1 block">品名</label>
+          <input ref={nameRef} type="text" value={name} onChange={e => setName(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-green-400"
+            placeholder="自訂品項" />
+        </div>
+
+        {/* Price display */}
+        <div className="bg-[#F5F5F0] rounded-xl px-4 py-3 text-center">
+          <div className="text-xs text-gray-400 mb-0.5">金額</div>
+          <div className={`text-3xl font-black ${price ? 'text-gray-800' : 'text-gray-300'}`}>
+            ${price ? Number(price).toLocaleString() : '0'}
+          </div>
+        </div>
+
+        {/* Numpad */}
+        <div className="grid gap-2">
+          {[['7','8','9'],['4','5','6'],['1','2','3']].map((row, ri) => (
+            <div key={ri} className="grid grid-cols-3 gap-2">
+              {row.map(k => (
+                <button key={k} onPointerDown={() => press(k)}
+                  className={`${btn} bg-gray-100 text-gray-800 hover:bg-gray-200`}>{k}</button>
+              ))}
+            </div>
+          ))}
+          <div className="grid grid-cols-3 gap-2">
+            <button onPointerDown={() => press('0')} className={`col-span-2 ${btn} bg-gray-100 text-gray-800 hover:bg-gray-200`}>0</button>
+            <button onPointerDown={() => press('⌫')} className={`${btn} bg-red-50 text-red-500 hover:bg-red-100`}>⌫</button>
+          </div>
+        </div>
+
+        {/* Confirm */}
+        <button onClick={handleConfirm} disabled={!price || Number(price) <= 0}
+          className="w-full py-3 rounded-xl bg-[#1D9E75] text-white font-black text-base
+            hover:bg-[#0F6E56] active:scale-[0.98] transition-all
+            disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed">
+          加入購物車
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Payment config ────────────────────────────────────────────
 const PAY_METHODS = [
   { id: 'cash',     label: '💵 現金'     },
@@ -105,6 +178,7 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
   const [cartLoading, setCartLoading] = useState(false)
   const [toast, setToast] = useState(null)
   const [submitError, setSubmitError] = useState(false)
+  const [showCustomModal, setShowCustomModal] = useState(false)
 
   const barcodeBuffer   = useRef('')
   const barcodeTimer    = useRef(null)
@@ -364,8 +438,23 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
               </button>
             )
           })}
+          {/* Custom item button */}
+          <button onClick={() => setShowCustomModal(true)}
+            className="flex flex-col items-center justify-center p-2 rounded-xl border-2 text-center
+              transition-all min-h-[90px] text-sm font-semibold
+              border-dashed border-gray-300 bg-gray-50 text-gray-400 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600 active:scale-95">
+            <span className="text-2xl mb-1">✏️</span>
+            <span className="leading-tight">自訂品項</span>
+          </button>
         </div>
       </div>
+
+      {showCustomModal && (
+        <CustomItemModal
+          onConfirm={item => { setCart(prev => [...prev, item]); setShowCustomModal(false) }}
+          onClose={() => setShowCustomModal(false)}
+        />
+      )}
 
       {/* Right: Cart */}
       <div className="w-80 xl:w-96 flex flex-col bg-white overflow-hidden flex-shrink-0">

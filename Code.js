@@ -215,26 +215,33 @@ function posGetProducts() {
 // ── POS：設定每日庫存 ────────────────────────────────────────
 
 function posSetDailyStock(items) {
-  var sheet = posGetSheet(POS_SH.DAILY);
+  var dailySheet = posGetSheet(POS_SH.DAILY);
   var today = posTodayStr();
-  var data  = sheet.getDataRange().getValues();
+  var data  = dailySheet.getDataRange().getValues();
 
   for (var i = data.length - 1; i >= 1; i--) {
-    if (posToDateStr(data[i][0]) === today) sheet.deleteRow(i + 1);
+    if (posToDateStr(data[i][0]) === today) dailySheet.deleteRow(i + 1);
   }
 
   items.forEach(function(it) {
-    sheet.appendRow([today, it.name, it.openStock || 0, 0, it.openStock || 0, it.price || 0]);
+    dailySheet.appendRow([today, it.name, it.openStock || 0, 0, it.openStock || 0, it.price || 0]);
   });
 
-  var prodSheet = posGetSheet(POS_SH.PRODUCTS);
-  var prodData  = prodSheet.getDataRange().getValues();
+  // 更新價格；若品項不存在則自動新增到商品主表
+  var prodSheet  = posGetSheet(POS_SH.PRODUCTS);
+  var prodData   = prodSheet.getDataRange().getValues();
+  var existNames = prodData.slice(1).map(function(r) { return String(r[0]); });
+
   items.forEach(function(it) {
-    for (var i = 1; i < prodData.length; i++) {
-      if (prodData[i][0] === it.name && it.price !== undefined) {
-        prodSheet.getRange(i + 1, 2).setValue(it.price);
-        break;
+    var idx = existNames.indexOf(it.name);
+    if (idx >= 0) {
+      if (it.price !== undefined && it.price > 0) {
+        prodSheet.getRange(idx + 2, 2).setValue(it.price);
       }
+    } else {
+      // 新品項：name, price, category, barcode, stockMode, arrived
+      prodSheet.appendRow([it.name, it.price || 0, '其他', '', 'reset', '是']);
+      existNames.push(it.name);
     }
   });
 
@@ -647,19 +654,21 @@ function getPurchaseBatches() {
     totalCost:    Number(r[6]),
     remainingQty: Number(r[7]),
     note:         String(r[8] || ''),
+    sellingPrice: Number(r[9] || 0),
   })).sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate));
 }
 
 // ── savePurchaseBatch ─────────────────────────────────────────
 
-function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note) {
+function savePurchaseBatch(product, purchaseDate, qty, unit, unitCost, note, sellingPrice) {
   const sheet = getSheet(SH.BATCHES);
   const data  = sheet.getDataRange().getValues();
   const maxId = data.slice(1).reduce((m, r) => Math.max(m, Number(r[0]) || 0), 0);
   const id    = maxId + 1;
   const qtyN  = Number(qty);
   const costN = Number(unitCost);
-  sheet.appendRow([id, product, purchaseDate, qtyN, unit || '', costN, qtyN * costN, qtyN, note || '']);
+  const spN   = Number(sellingPrice) || 0;
+  sheet.appendRow([id, product, purchaseDate, qtyN, unit || '', costN, qtyN * costN, qtyN, note || '', spN]);
   SpreadsheetApp.flush();
   return { success: true, id };
 }
@@ -675,6 +684,7 @@ function updatePurchaseBatch(id, updates) {
       if (updates.purchaseDate !== undefined) sheet.getRange(i + 1, 3).setValue(updates.purchaseDate);
       if (updates.qty          !== undefined) sheet.getRange(i + 1, 4).setValue(Number(updates.qty));
       if (updates.unit         !== undefined) sheet.getRange(i + 1, 5).setValue(updates.unit);
+      if (updates.sellingPrice !== undefined) sheet.getRange(i + 1, 10).setValue(Number(updates.sellingPrice));
       const qty      = updates.qty      !== undefined ? Number(updates.qty)      : Number(data[i][3]);
       const unitCost = updates.unitCost !== undefined ? Number(updates.unitCost) : Number(data[i][5]);
       if (updates.unitCost !== undefined) sheet.getRange(i + 1, 6).setValue(unitCost);
