@@ -4,6 +4,7 @@ import {
   BARCODE_READER_CONFIG,
   BARCODE_SCAN_CONFIG,
   normalizeBarcodeText,
+  stopBarcodeScanner,
 } from '../utils/barcodeScanner'
 import {
   getProductsForPOS, setDailyStock, saveProduct, deleteProduct, renameProduct, getCostRecords,
@@ -16,25 +17,39 @@ const SETUP_SCANNER_ID = 'barcode-setup-reader'
 function BarcodeScannerModal({ onDetect, onClose }) {
   const scannerRef  = useRef(null)
   const detectedRef = useRef(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    const scanner = new Html5Qrcode(SETUP_SCANNER_ID, BARCODE_READER_CONFIG)
-    scannerRef.current = scanner
+    let cancelled = false
 
-    scanner.start(
-      { facingMode: { ideal: 'environment' } },
-      BARCODE_SCAN_CONFIG,
-      (code) => {
-        if (detectedRef.current) return
-        const normalizedCode = normalizeBarcodeText(code)
-        if (normalizedCode.length < 4) return
-        detectedRef.current = true
-        scanner.stop().catch(() => {}).finally(() => onDetect(normalizedCode))
-      },
-      () => {}
-    ).catch(() => onClose())
+    try {
+      const scanner = new Html5Qrcode(SETUP_SCANNER_ID, BARCODE_READER_CONFIG)
+      scannerRef.current = scanner
 
-    return () => { scanner.stop().catch(() => {}) }
+      scanner.start(
+        { facingMode: { ideal: 'environment' } },
+        BARCODE_SCAN_CONFIG,
+        (code) => {
+          if (detectedRef.current) return
+          const normalizedCode = normalizeBarcodeText(code)
+          if (normalizedCode.length < 4) return
+          detectedRef.current = true
+          stopBarcodeScanner(scanner).finally(() => onDetect(normalizedCode))
+        },
+        () => {}
+      ).catch(() => {
+        if (!cancelled) setError('相機啟動失敗，請確認瀏覽器已允許相機權限。')
+      })
+    } catch {
+      Promise.resolve().then(() => {
+        if (!cancelled) setError('相機掃描器載入失敗，請重新整理後再試一次。')
+      })
+    }
+
+    return () => {
+      cancelled = true
+      stopBarcodeScanner(scannerRef.current)
+    }
   }, [onDetect, onClose])
 
   return (
@@ -45,6 +60,7 @@ function BarcodeScannerModal({ onDetect, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
         <div id={SETUP_SCANNER_ID} className="w-full overflow-hidden rounded-xl" />
+        {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
         <p className="text-xs text-gray-400 text-center">將商品條碼橫放並填滿框線，自動辨識後綁定品項</p>
       </div>
     </div>

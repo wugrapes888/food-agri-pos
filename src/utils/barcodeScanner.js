@@ -32,3 +32,13 @@ export const BARCODE_SCAN_CONFIG = {
 export function normalizeBarcodeText(value) {
   return String(value ?? '').replace(/\s+/g, '').trim()
 }
+
+export async function stopBarcodeScanner(scanner) {
+  if (!scanner) return
+
+  try {
+    await scanner.stop()
+  } catch {
+    // html5-qrcode can throw when stop is called before start fully resolves.
+  }
+}

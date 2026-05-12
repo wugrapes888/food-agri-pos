@@ -6,6 +6,7 @@ import {
   BARCODE_READER_CONFIG,
   BARCODE_SCAN_CONFIG,
   normalizeBarcodeText,
+  stopBarcodeScanner,
 } from './barcodeScanner.js'
 
 test('barcode scanner prioritizes common product barcode formats', () => {
@@ -39,4 +40,20 @@ test('barcode reader uses the ZXing decoder for stable one-dimensional barcode s
 test('normalizeBarcodeText trims scanner noise without dropping leading zeroes', () => {
   assert.equal(normalizeBarcodeText('  0 471 0000 01234 \n'), '0471000001234')
   assert.equal(normalizeBarcodeText(null), '')
+})
+
+test('stopBarcodeScanner absorbs scanners that throw before starting', async () => {
+  await assert.doesNotReject(() => stopBarcodeScanner({
+    stop() {
+      throw new Error('Cannot stop, scanner is not running')
+    },
+  }))
+})
+
+test('stopBarcodeScanner absorbs rejected async stops', async () => {
+  await assert.doesNotReject(() => stopBarcodeScanner({
+    stop() {
+      return Promise.reject(new Error('stop failed'))
+    },
+  }))
 })
