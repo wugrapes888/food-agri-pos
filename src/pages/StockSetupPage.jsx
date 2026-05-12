@@ -104,7 +104,10 @@ function PurchaseSection({ onOpenPOS }) {
     } finally { setOpenStalling(false) }
   }
 
-  const handleDelete = async (id) => { await deletePurchaseBatch(id); load(true) }
+  const handleDelete = async (id) => {
+    setBatches(prev => prev.filter(b => b.id !== id))
+    try { await deletePurchaseBatch(id) } catch { load(true) }
+  }
 
   const handleFieldChange = (id, field, value) =>
     setPendingEdits(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: value } }))
@@ -376,9 +379,9 @@ function PurchaseSection({ onOpenPOS }) {
                           </span>
                         </div>
                       </td>
-                      <td className="px-2 py-2.5 text-center">
+                      <td className="px-1 py-1 text-center">
                         <button onClick={() => handleDelete(b.id ?? i)}
-                          className="text-red-300 hover:text-red-500 text-xs leading-none" title="刪除">✕</button>
+                          className="w-8 h-8 flex items-center justify-center rounded-full text-red-300 hover:text-red-600 hover:bg-red-50 active:bg-red-100 active:scale-90 transition-all" title="刪除">✕</button>
                       </td>
                     </tr>
                   )
@@ -521,13 +524,12 @@ function SetupSection({ onOpenPOS }) {
   }
 
   const handleDelete = async name => {
-    try {
-      await deleteProduct(name)
-      setProducts(prev => prev.filter(p => p.name !== name))
-      const drop = obj => { const n = { ...obj }; delete n[name]; return n }
-      setStocks(drop); setPrices(drop); setOrigPrices(drop); setIncluded(drop)
-    } catch (e) { setError('刪除失敗：' + e.message) }
-    finally { setConfirmDelete(null) }
+    setConfirmDelete(null)
+    setProducts(prev => prev.filter(p => p.name !== name))
+    const drop = obj => { const n = { ...obj }; delete n[name]; return n }
+    setStocks(drop); setPrices(drop); setOrigPrices(drop); setIncluded(drop)
+    try { await deleteProduct(name) }
+    catch (e) { setError('刪除失敗：' + e.message) }
   }
 
   const includedCount = Object.values(included).filter(Boolean).length

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Html5Qrcode } from 'html5-qrcode'
 import {
   getProductsForPOS,
   getAllCustomersForPOS,
@@ -66,6 +67,45 @@ function FixedNumpad({ onChange }) {
           className={`col-span-2 ${btn} bg-gray-100 text-gray-800 hover:bg-gray-200`}>0</button>
         <button onPointerDown={() => press('⌫')}
           className={`${btn} bg-red-50 text-red-500 hover:bg-red-100`}>⌫</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Barcode Scanner Modal ─────────────────────────────────────
+const SCANNER_DIV_ID = 'barcode-camera-reader'
+
+function BarcodeScannerModal({ onDetect, onClose }) {
+  const scannerRef = useRef(null)
+  const detectedRef = useRef(false)
+
+  useEffect(() => {
+    const scanner = new Html5Qrcode(SCANNER_DIV_ID)
+    scannerRef.current = scanner
+
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 260, height: 110 } },
+      (code) => {
+        if (detectedRef.current) return
+        detectedRef.current = true
+        scanner.stop().catch(() => {}).finally(() => onDetect(code.trim()))
+      },
+      () => {}
+    ).catch(() => onClose())
+
+    return () => { scanner.stop().catch(() => {}) }
+  }, [onDetect, onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-gray-800 text-lg">掃描條碼</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+        <div id={SCANNER_DIV_ID} className="w-full overflow-hidden rounded-xl" />
+        <p className="text-xs text-gray-400 text-center">將商品條碼對準框內，自動辨識後加入購物車</p>
       </div>
     </div>
   )
@@ -179,6 +219,7 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
   const [toast, setToast] = useState(null)
   const [submitError, setSubmitError] = useState(false)
   const [showCustomModal, setShowCustomModal] = useState(false)
+  const [showScanner, setShowScanner] = useState(false)
 
   const barcodeBuffer   = useRef('')
   const barcodeTimer    = useRef(null)
@@ -256,6 +297,14 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
       return [...prev, { name: product.name, price: product.price, qty: 1, isPreorder: false, arrived: true }]
     })
   }, [showToast])
+
+  const handleScanDetect = useCallback((code) => {
+    setShowScanner(false)
+    if (code.length < 4) return
+    const p = products.find(x => x.barcode === code)
+    if (p) addToCart(p)
+    else showToast(`找不到條碼：${code}`, 'error')
+  }, [products, addToCart, showToast])
 
   const updateQty = (index, delta) => {
     setCart(prev => {
@@ -408,9 +457,13 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
             placeholder="掃描或輸入條碼後按 Enter…"
             className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-green-400 bg-white"
           />
-          {barcodeInput && (
-            <button onClick={() => setBarcodeInput('')} className="text-gray-400 hover:text-red-400 px-1 text-sm">✕</button>
-          )}
+          {barcodeInput
+            ? <button onClick={() => setBarcodeInput('')} className="text-gray-400 hover:text-red-400 px-1 text-sm">✕</button>
+            : <button onClick={() => setShowScanner(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#1D9E75] text-white text-xs font-bold hover:bg-[#0F6E56] active:scale-95 transition-all flex-shrink-0">
+                📷 相機
+              </button>
+          }
         </div>
 
         {/* Product grid */}
@@ -448,6 +501,13 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
           </button>
         </div>
       </div>
+
+      {showScanner && (
+        <BarcodeScannerModal
+          onDetect={handleScanDetect}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
 
       {showCustomModal && (
         <CustomItemModal
