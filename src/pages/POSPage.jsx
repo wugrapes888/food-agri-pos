@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import {
   BARCODE_READER_CONFIG,
@@ -316,9 +316,13 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
     return false
   }
 
-  const categories = ['全部', ...new Set(products.map(p => p.category).filter(Boolean))]
-  const filteredProducts = products.filter(p =>
-    activeCategory === '全部' || p.category === activeCategory
+  const categories = useMemo(
+    () => ['全部', ...new Set(products.map(p => p.category).filter(Boolean))],
+    [products]
+  )
+  const filteredProducts = useMemo(
+    () => products.filter(p => activeCategory === '全部' || p.category === activeCategory),
+    [products, activeCategory]
   )
 
   const handleScanDetect = useCallback((code) => {
@@ -361,6 +365,11 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
     setCustomerSearch('')
     setCart([])
   }
+
+  const pendingCustomers = useMemo(
+    () => customers.filter(c => c.status !== '已取貨' && matchCustomer(c, customerSearch)),
+    [customers, customerSearch]
+  )
 
   const arrivedCart = cart.filter(i => i.arrived !== false)
   const total       = arrivedCart.reduce((s, i) => s + i.price * i.qty, 0)
@@ -582,7 +591,7 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-shrink-0">
           <span className="text-xs font-semibold text-gray-500">
             {customerType === 'preorder' && !selectedCustomer
-              ? `${customers.filter(c => c.status !== '已取貨' && matchCustomer(c, customerSearch)).length} 位待取貨`
+              ? `${pendingCustomers.length} 位待取貨`
               : cart.length > 0 ? `${cart.length} 項商品` : '購物車'}
           </span>
           {cart.length > 0 && selectedCustomer && (
@@ -595,14 +604,12 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
           {customerType === 'preorder' && !selectedCustomer ? (
             // ── 客人清單 ──────────────────────────────────
-            customers.filter(c => c.status !== '已取貨' && matchCustomer(c, customerSearch)).length === 0 ? (
+            pendingCustomers.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-300">
                 <p className="text-sm">{customerSearch ? '找不到符合的客人' : '所有客人已取貨完畢'}</p>
               </div>
             ) : (
-              customers
-                .filter(c => c.status !== '已取貨' && matchCustomer(c, customerSearch))
-                .map(c => (
+              pendingCustomers.map(c => (
                   <button key={c.name} onClick={() => handleSelectCustomer(c.name)}
                     className="w-full text-left px-3 py-3 rounded-xl border border-gray-100 bg-gray-50
                       hover:bg-green-50 hover:border-green-300 active:scale-[0.98] transition-all">

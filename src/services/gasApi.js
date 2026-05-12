@@ -38,9 +38,13 @@ function setCache(key, data) {
   try { localStorage.setItem(key, JSON.stringify({ data, time: Date.now() })) } catch {}
 }
 
+// session-level customer cart cache（頁面重整後清空）
+const _cartCache = new Map()
+
 export function clearPOSCache() {
   localStorage.removeItem('cache_products')
   localStorage.removeItem('cache_customers')
+  _cartCache.clear()
 }
 
 async function gasCall(action, data = {}) {
@@ -54,7 +58,6 @@ async function gasCall(action, data = {}) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
-  console.log('[GAS]', action, json);
   if (json && json.error) throw new Error(json.error);
   return json;
 }
@@ -213,7 +216,10 @@ export async function getCustomerCartForPOS(name) {
     const c = MOCK_CUSTOMERS.find(x => x.name === name);
     return c ? c.orders : [];
   }
-  return gasCall('getCustomerCartForPOS', { name });
+  if (_cartCache.has(name)) return _cartCache.get(name)
+  const data = await gasCall('getCustomerCartForPOS', { name })
+  _cartCache.set(name, data)
+  return data
 }
 
 export async function submitCheckout(payload) {

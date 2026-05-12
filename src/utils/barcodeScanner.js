@@ -16,11 +16,11 @@ export const BARCODE_FORMATS_TO_SUPPORT = [
 
 export const BARCODE_READER_CONFIG = {
   formatsToSupport: BARCODE_FORMATS_TO_SUPPORT,
-  useBarCodeDetectorIfSupported: false,
+  useBarCodeDetectorIfSupported: true,
 }
 
 export const BARCODE_SCAN_CONFIG = {
-  fps: 20,
+  fps: 10,
   disableFlip: false,
   aspectRatio: 1.777778,
   qrbox: (width, height) => ({
