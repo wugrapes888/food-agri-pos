@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import {
+  BARCODE_READER_CONFIG,
+  BARCODE_SCAN_CONFIG,
+  normalizeBarcodeText,
+} from '../utils/barcodeScanner'
+import {
   getProductsForPOS, setDailyStock, saveProduct, deleteProduct, renameProduct, getCostRecords,
   getPurchaseBatches, savePurchaseBatch, deletePurchaseBatch, updatePurchaseBatch, clearPOSCache,
 } from '../services/gasApi'
@@ -13,16 +18,18 @@ function BarcodeScannerModal({ onDetect, onClose }) {
   const detectedRef = useRef(false)
 
   useEffect(() => {
-    const scanner = new Html5Qrcode(SETUP_SCANNER_ID)
+    const scanner = new Html5Qrcode(SETUP_SCANNER_ID, BARCODE_READER_CONFIG)
     scannerRef.current = scanner
 
     scanner.start(
-      { facingMode: 'environment' },
-      { fps: 15, qrbox: (w, h) => ({ width: Math.min(Math.floor(w * 0.85), 340), height: Math.min(Math.floor(h * 0.32), 130) }) },
+      { facingMode: { ideal: 'environment' } },
+      BARCODE_SCAN_CONFIG,
       (code) => {
         if (detectedRef.current) return
+        const normalizedCode = normalizeBarcodeText(code)
+        if (normalizedCode.length < 4) return
         detectedRef.current = true
-        scanner.stop().catch(() => {}).finally(() => onDetect(code.trim()))
+        scanner.stop().catch(() => {}).finally(() => onDetect(normalizedCode))
       },
       () => {}
     ).catch(() => onClose())
@@ -38,7 +45,7 @@ function BarcodeScannerModal({ onDetect, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
         <div id={SETUP_SCANNER_ID} className="w-full overflow-hidden rounded-xl" />
-        <p className="text-xs text-gray-400 text-center">將商品條碼對準框內，自動辨識後綁定品項</p>
+        <p className="text-xs text-gray-400 text-center">將商品條碼橫放並填滿框線，自動辨識後綁定品項</p>
       </div>
     </div>
   )
@@ -517,9 +524,9 @@ function SetupSection({ onOpenPOS }) {
   const handleCost  = (name, val) => setCosts(prev  => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
 
   const handleSaveBarcode = async (name) => {
-    const barcode = (barcodes[name] ?? '').trim()
+    const barcode = normalizeBarcodeText(barcodes[name])
     const product = products.find(p => p.name === name)
-    if (!product || barcode === (product.barcode || '')) return
+    if (!product || barcode === normalizeBarcodeText(product.barcode)) return
     try {
       await saveProduct({ name: product.name, price: product.price, category: product.category, stockMode: product.stockMode, arrived: product.arrived, barcode })
       setProducts(prev => prev.map(p => p.name === name ? { ...p, barcode } : p))
@@ -530,11 +537,13 @@ function SetupSection({ onOpenPOS }) {
     const name = scanningFor
     setScanningFor(null)
     if (!name) return
-    setBarcodes(prev => ({ ...prev, [name]: code }))
+    const barcode = normalizeBarcodeText(code)
+    if (barcode.length < 4) return
+    setBarcodes(prev => ({ ...prev, [name]: barcode }))
     const product = products.find(p => p.name === name)
     if (!product) return
-    saveProduct({ name: product.name, price: product.price, category: product.category, stockMode: product.stockMode, arrived: product.arrived, barcode: code })
-      .then(() => setProducts(prev => prev.map(p => p.name === name ? { ...p, barcode: code } : p)))
+    saveProduct({ name: product.name, price: product.price, category: product.category, stockMode: product.stockMode, arrived: product.arrived, barcode })
+      .then(() => setProducts(prev => prev.map(p => p.name === name ? { ...p, barcode } : p)))
       .catch(e => setError('條碼儲存失敗：' + e.message))
   }
   const toggleIncluded = name => setIncluded(prev => ({ ...prev, [name]: !prev[name] }))
@@ -782,7 +791,7 @@ function SetupSection({ onOpenPOS }) {
                         <input
                           type="text"
                           value={barcodes[p.name] ?? ''}
-                          onChange={e => setBarcodes(prev => ({ ...prev, [p.name]: e.target.value }))}
+                          onChange={e => setBarcodes(prev => ({ ...prev, [p.name]: normalizeBarcodeText(e.target.value) }))}
                           onBlur={() => handleSaveBarcode(p.name)}
                           onKeyDown={e => e.key === 'Enter' && e.target.blur()}
                           placeholder="未設定，可手動輸入或掃描"

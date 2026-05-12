@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import {
+  BARCODE_READER_CONFIG,
+  BARCODE_SCAN_CONFIG,
+  normalizeBarcodeText,
+} from '../utils/barcodeScanner'
+import {
   getProductsForPOS,
   getAllCustomersForPOS,
   getCustomerCartForPOS,
@@ -80,16 +85,18 @@ function BarcodeScannerModal({ onDetect, onClose }) {
   const detectedRef = useRef(false)
 
   useEffect(() => {
-    const scanner = new Html5Qrcode(SCANNER_DIV_ID)
+    const scanner = new Html5Qrcode(SCANNER_DIV_ID, BARCODE_READER_CONFIG)
     scannerRef.current = scanner
 
     scanner.start(
-      { facingMode: 'environment' },
-      { fps: 15, qrbox: (w, h) => ({ width: Math.min(Math.floor(w * 0.85), 340), height: Math.min(Math.floor(h * 0.32), 130) }) },
+      { facingMode: { ideal: 'environment' } },
+      BARCODE_SCAN_CONFIG,
       (code) => {
         if (detectedRef.current) return
+        const normalizedCode = normalizeBarcodeText(code)
+        if (normalizedCode.length < 4) return
         detectedRef.current = true
-        scanner.stop().catch(() => {}).finally(() => onDetect(code.trim()))
+        scanner.stop().catch(() => {}).finally(() => onDetect(normalizedCode))
       },
       () => {}
     ).catch(() => onClose())
@@ -105,7 +112,7 @@ function BarcodeScannerModal({ onDetect, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
         <div id={SCANNER_DIV_ID} className="w-full overflow-hidden rounded-xl" />
-        <p className="text-xs text-gray-400 text-center">將商品條碼對準框內，自動辨識後加入購物車</p>
+        <p className="text-xs text-gray-400 text-center">將商品條碼橫放並填滿框線，自動辨識後加入購物車</p>
       </div>
     </div>
   )
@@ -227,6 +234,20 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
 
   const showToast = useCallback((msg, type = '') => setToast({ msg, type }), [])
 
+  const addToCart = useCallback((product) => {
+    if (!product.arrived) { showToast(`${product.name} 尚未到貨`, 'error'); return }
+    if (product.stock === 0) { showToast(`${product.name} 庫存為 0`, 'error'); return }
+    setCart(prev => {
+      const idx = prev.findIndex(i => i.name === product.name && !i.isPreorder)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 }
+        return next
+      }
+      return [...prev, { name: product.name, price: product.price, qty: 1, isPreorder: false, arrived: true }]
+    })
+  }, [showToast])
+
   useEffect(() => {
     Promise.all([getProductsForPOS(), getAllCustomersForPOS()])
       .then(([prods, custs]) => { setProducts(prods); setCustomers(custs) })
@@ -250,11 +271,11 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
     const handleKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       if (e.key === 'Enter') {
-        const code = barcodeBuffer.current.trim()
+        const code = normalizeBarcodeText(barcodeBuffer.current)
         barcodeBuffer.current = ''
         clearTimeout(barcodeTimer.current)
         if (code.length >= 4) {
-          const p = products.find(x => x.barcode === code)
+          const p = products.find(x => normalizeBarcodeText(x.barcode) === code)
           if (p) addToCart(p)
           else showToast(`找不到條碼：${code}`, 'error')
         }
@@ -266,7 +287,7 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [products, showToast])
+  }, [products, addToCart, showToast])
 
   useEffect(() => {
     if (!loading) barcodeInputRef.current?.focus()
@@ -284,26 +305,13 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
     activeCategory === '全部' || p.category === activeCategory
   )
 
-  const addToCart = useCallback((product) => {
-    if (!product.arrived) { showToast(`${product.name} 尚未到貨`, 'error'); return }
-    if (product.stock === 0) { showToast(`${product.name} 庫存為 0`, 'error'); return }
-    setCart(prev => {
-      const idx = prev.findIndex(i => i.name === product.name && !i.isPreorder)
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1 }
-        return next
-      }
-      return [...prev, { name: product.name, price: product.price, qty: 1, isPreorder: false, arrived: true }]
-    })
-  }, [showToast])
-
   const handleScanDetect = useCallback((code) => {
     setShowScanner(false)
-    if (code.length < 4) return
-    const p = products.find(x => x.barcode === code)
+    const normalizedCode = normalizeBarcodeText(code)
+    if (normalizedCode.length < 4) return
+    const p = products.find(x => normalizeBarcodeText(x.barcode) === normalizedCode)
     if (p) addToCart(p)
-    else showToast(`找不到條碼：${code}`, 'error')
+    else showToast(`找不到條碼：${normalizedCode}`, 'error')
   }, [products, addToCart, showToast])
 
   const updateQty = (index, delta) => {
@@ -447,10 +455,10 @@ export default function POSPage({ preselectedCustomer, onClearPreselect, current
             onChange={e => setBarcodeInput(e.target.value)}
             onKeyDown={e => {
               if (e.key !== 'Enter') return
-              const code = barcodeInput.trim()
+              const code = normalizeBarcodeText(barcodeInput)
               setBarcodeInput('')
               if (code.length < 4) return
-              const p = products.find(x => x.barcode === code)
+              const p = products.find(x => normalizeBarcodeText(x.barcode) === code)
               if (p) addToCart(p)
               else showToast(`找不到條碼：${code}`, 'error')
             }}
