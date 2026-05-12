@@ -85,7 +85,7 @@ function BarcodeScannerModal({ onDetect, onClose }) {
 
     scanner.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 260, height: 110 } },
+      { fps: 15, qrbox: (w, h) => ({ width: Math.min(Math.floor(w * 0.85), 340), height: Math.min(Math.floor(h * 0.32), 130) }) },
       (code) => {
         if (detectedRef.current) return
         detectedRef.current = true

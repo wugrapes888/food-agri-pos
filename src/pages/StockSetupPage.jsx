@@ -1,8 +1,48 @@
 import { useState, useEffect, useRef } from 'react'
+import { Html5Qrcode } from 'html5-qrcode'
 import {
   getProductsForPOS, setDailyStock, saveProduct, deleteProduct, renameProduct, getCostRecords,
   getPurchaseBatches, savePurchaseBatch, deletePurchaseBatch, updatePurchaseBatch, clearPOSCache,
 } from '../services/gasApi'
+
+// ── 條碼掃描 Modal ─────────────────────────────────────────────
+const SETUP_SCANNER_ID = 'barcode-setup-reader'
+
+function BarcodeScannerModal({ onDetect, onClose }) {
+  const scannerRef  = useRef(null)
+  const detectedRef = useRef(false)
+
+  useEffect(() => {
+    const scanner = new Html5Qrcode(SETUP_SCANNER_ID)
+    scannerRef.current = scanner
+
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 15, qrbox: (w, h) => ({ width: Math.min(Math.floor(w * 0.85), 340), height: Math.min(Math.floor(h * 0.32), 130) }) },
+      (code) => {
+        if (detectedRef.current) return
+        detectedRef.current = true
+        scanner.stop().catch(() => {}).finally(() => onDetect(code.trim()))
+      },
+      () => {}
+    ).catch(() => onClose())
+
+    return () => { scanner.stop().catch(() => {}) }
+  }, [onDetect, onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-gray-800 text-lg">掃描條碼</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+        <div id={SETUP_SCANNER_ID} className="w-full overflow-hidden rounded-xl" />
+        <p className="text-xs text-gray-400 text-center">將商品條碼對準框內，自動辨識後綁定品項</p>
+      </div>
+    </div>
+  )
+}
 
 const CATEGORIES = ['水果', '蔬菜', '蛋類', '冷凍食品', '加工品', '其他']
 const EMPTY_FORM  = { name: '', price: '', openStock: '', category: '其他', stockMode: 'reset', arrived: true }
@@ -439,6 +479,9 @@ function SetupSection({ onOpenPOS }) {
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [adding,  setAdding]  = useState(false)
 
+  const [barcodes,     setBarcodes]     = useState({})
+  const [scanningFor,  setScanningFor]  = useState(null)
+
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editingName,   setEditingName]   = useState(null)
   const [editNameVal,   setEditNameVal]   = useState('')
@@ -450,7 +493,7 @@ function SetupSection({ onOpenPOS }) {
         setProducts(prods)
         const latestCostMap = {}
         costRecords.forEach(r => { if (!(r.product in latestCostMap)) latestCostMap[r.product] = r.cost })
-        const initStocks = {}, initPrices = {}, initIncluded = {}, initCosts = {}
+        const initStocks = {}, initPrices = {}, initIncluded = {}, initCosts = {}, initBarcodes = {}
         prods.forEach(p => {
           const suggestedQty =
             p.stockMode === 'carry' && p.prevStock !== null ? p.prevStock :
@@ -459,9 +502,11 @@ function SetupSection({ onOpenPOS }) {
           initPrices[p.name]   = p.price
           initIncluded[p.name] = p.arrived !== false
           initCosts[p.name]    = latestCostMap[p.name] ?? 0
+          initBarcodes[p.name] = p.barcode || ''
         })
         setStocks(initStocks); setPrices(initPrices); setOrigPrices(initPrices)
         setCosts(initCosts);   setOrigCosts({ ...initCosts }); setIncluded(initIncluded)
+        setBarcodes(initBarcodes)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -470,6 +515,28 @@ function SetupSection({ onOpenPOS }) {
   const handleQty   = (name, val) => setStocks(prev => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
   const handlePrice = (name, val) => setPrices(prev => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
   const handleCost  = (name, val) => setCosts(prev  => ({ ...prev, [name]: Math.max(0, parseInt(val) || 0) }))
+
+  const handleSaveBarcode = async (name) => {
+    const barcode = (barcodes[name] ?? '').trim()
+    const product = products.find(p => p.name === name)
+    if (!product || barcode === (product.barcode || '')) return
+    try {
+      await saveProduct({ name: product.name, price: product.price, category: product.category, stockMode: product.stockMode, arrived: product.arrived, barcode })
+      setProducts(prev => prev.map(p => p.name === name ? { ...p, barcode } : p))
+    } catch (e) { setError('條碼儲存失敗：' + e.message) }
+  }
+
+  const handleScanBarcode = (code) => {
+    const name = scanningFor
+    setScanningFor(null)
+    if (!name) return
+    setBarcodes(prev => ({ ...prev, [name]: code }))
+    const product = products.find(p => p.name === name)
+    if (!product) return
+    saveProduct({ name: product.name, price: product.price, category: product.category, stockMode: product.stockMode, arrived: product.arrived, barcode: code })
+      .then(() => setProducts(prev => prev.map(p => p.name === name ? { ...p, barcode: code } : p)))
+      .catch(e => setError('條碼儲存失敗：' + e.message))
+  }
   const toggleIncluded = name => setIncluded(prev => ({ ...prev, [name]: !prev[name] }))
 
   const handleSave = async () => {
@@ -519,7 +586,7 @@ function SetupSection({ onOpenPOS }) {
       await renameProduct(oldName, newName)
       setProducts(prev => prev.map(p => p.name === oldName ? { ...p, name: newName } : p))
       const rename = obj => { const n = { ...obj }; if (oldName in n) { n[newName] = n[oldName]; delete n[oldName] }; return n }
-      setStocks(rename); setPrices(rename); setOrigPrices(rename); setIncluded(rename)
+      setStocks(rename); setPrices(rename); setOrigPrices(rename); setIncluded(rename); setBarcodes(rename)
     } catch (e) { setError('改名失敗：' + e.message) }
   }
 
@@ -710,6 +777,22 @@ function SetupSection({ onOpenPOS }) {
                         <button onClick={() => handleQty(p.name, (stocks[p.name] || 0) + 1)}
                           className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600 font-bold flex items-center justify-center text-base">＋</button>
                       </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400 whitespace-nowrap">條碼</span>
+                        <input
+                          type="text"
+                          value={barcodes[p.name] ?? ''}
+                          onChange={e => setBarcodes(prev => ({ ...prev, [p.name]: e.target.value }))}
+                          onBlur={() => handleSaveBarcode(p.name)}
+                          onKeyDown={e => e.key === 'Enter' && e.target.blur()}
+                          placeholder="未設定，可手動輸入或掃描"
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs font-mono focus:outline-none focus:border-green-400"
+                        />
+                        <button onClick={() => setScanningFor(p.name)}
+                          className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-[#1D9E75] text-white text-xs font-bold hover:bg-[#0F6E56] active:scale-95 transition-all">
+                          📷
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -718,6 +801,13 @@ function SetupSection({ onOpenPOS }) {
           </div>
         </div>
       ))}
+
+      {scanningFor && (
+        <BarcodeScannerModal
+          onDetect={handleScanBarcode}
+          onClose={() => setScanningFor(null)}
+        />
+      )}
 
       {/* 確認開攤按鈕 */}
       <div className="sticky bottom-4 pt-2">
